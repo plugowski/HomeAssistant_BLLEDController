@@ -173,6 +173,18 @@ void handleGetConfig(AsyncWebServerRequest *request)
     doc["hmsIgnoreList"] = printerConfig.hmsIgnoreList;
     // control chamber light
     doc["controlChamberLight"] = printerConfig.controlChamberLight;
+    // Home Assistant integration & operating mode
+    doc["ledControlMode"] = printerConfig.ledControlMode;
+    doc["haEnabled"] = printerConfig.haEnabled;
+    doc["haMqttHost"] = printerConfig.haMqttHost;
+    doc["haMqttPort"] = printerConfig.haMqttPort;
+    doc["haMqttUser"] = printerConfig.haMqttUser;
+    doc["haMqttPass"] = printerConfig.haMqttPass;
+    doc["offlineDimEnabled"] = printerConfig.offlineDimEnabled;
+    doc["offlineDimAfterSec"] = printerConfig.offlineDimAfterSec;
+    doc["offlineDimBrightness"] = printerConfig.offlineDimBrightness;
+    doc["haMasterEnable"] = haVariables.masterEnable;
+    doc["haConnected"] = haVariables.connected;
 
     String jsonString;
     serializeJson(doc, jsonString);
@@ -254,8 +266,10 @@ void handleSubmitConfig(AsyncWebServerRequest *request)
             }
             else
             {
+                MDNS.addService("http", "tcp", 80); // re-advertise web UI under the new hostname
                 LogSerial.print(F("[MDNS] Hostname now: "));
-                LogSerial.println(globalVariables.Host);
+                LogSerial.print(globalVariables.Host);
+                LogSerial.println(F(".local"));
             }
         }
     
@@ -302,6 +316,38 @@ void handleSubmitConfig(AsyncWebServerRequest *request)
     // Control Chamber Light
     printerConfig.controlChamberLight = request->hasParam("controlChamberLight", true);
 
+    // === Home Assistant integration & operating mode ===
+    bool oldHaEnabled = printerConfig.haEnabled;
+    String oldHaHost = printerConfig.haMqttHost;
+    int oldHaPort = printerConfig.haMqttPort;
+    String oldHaUser = printerConfig.haMqttUser;
+    String oldHaPass = printerConfig.haMqttPass;
+
+    printerConfig.ledControlMode = getSafeParamInt(request, "ledControlMode", printerConfig.ledControlMode);
+    printerConfig.haEnabled = request->hasParam("haEnabled", true);
+    strlcpy(printerConfig.haMqttHost, getSafeParamValue(request, "haMqttHost").c_str(), sizeof(printerConfig.haMqttHost));
+    printerConfig.haMqttPort = getSafeParamInt(request, "haMqttPort", 1883);
+    strlcpy(printerConfig.haMqttUser, getSafeParamValue(request, "haMqttUser").c_str(), sizeof(printerConfig.haMqttUser));
+    strlcpy(printerConfig.haMqttPass, getSafeParamValue(request, "haMqttPass").c_str(), sizeof(printerConfig.haMqttPass));
+    printerConfig.offlineDimEnabled = request->hasParam("offlineDimEnabled", true);
+    printerConfig.offlineDimAfterSec = getSafeParamInt(request, "offlineDimAfterSec", 60);
+    printerConfig.offlineDimBrightness = getSafeParamInt(request, "offlineDimBrightness", 5);
+    haVariables.masterEnable = request->hasParam("haMasterEnable", true);
+    if (printerConfig.ledControlMode == LED_MODE_PRINTER)
+        haVariables.overrideActive = false;
+
+    // Push these changes (master enable, mode) back to Home Assistant so the HA
+    // entities reflect what was set from the web UI instead of going out of sync.
+    haVariables.stateDirty = true;
+
+    // If the broker connection settings changed, reboot so the HA MQTT client
+    // re-initialises cleanly against the new broker.
+    bool haConnChanged = (oldHaEnabled != printerConfig.haEnabled) ||
+                         (oldHaHost != String(printerConfig.haMqttHost)) ||
+                         (oldHaPort != printerConfig.haMqttPort) ||
+                         (oldHaUser != String(printerConfig.haMqttUser)) ||
+                         (oldHaPass != String(printerConfig.haMqttPass));
+
     saveFileSystem();
     LogSerial.println(F("Packet received from setuppage"));
     printerConfig.inactivityStartms = millis();
@@ -311,7 +357,42 @@ void handleSubmitConfig(AsyncWebServerRequest *request)
     printerConfig.discoMode_update = true;
     printerConfig.testcolor_update = true;
     updateleds();
+
+    if (haConnChanged)
+    {
+        request->send(200, "text/plain", "OK - restarting to apply Home Assistant settings");
+        LogSerial.println(F("[HA] Connection settings changed - restarting"));
+        shouldRestart = true;
+        restartRequestTime = millis();
+        return;
+    }
+
     request->send(200, "text/plain", "OK");
+}
+
+// Apply the master "Enable BLLED Light Control" immediately (no full Save needed),
+// persist it, and sync the new state to Home Assistant.
+void handleSetEnable(AsyncWebServerRequest *request)
+{
+    if (!isAuthorized(request))
+        return request->requestAuthentication();
+
+    bool on = true;
+    if (request->hasParam("on"))
+    {
+        String v = request->getParam("on")->value();
+        on = (v == "1" || v == "true" || v == "on");
+    }
+
+    haVariables.masterEnable = on;
+    haVariables.stateDirty = true; // push new state to Home Assistant
+    saveFileSystem();              // persist
+    updateleds();
+
+    LogSerial.print(F("[Web] BLLED light control "));
+    LogSerial.println(on ? F("enabled") : F("disabled"));
+
+    request->send(200, "application/json", String("{\"masterEnable\":") + (on ? "true" : "false") + "}");
 }
 
 void sendJsonToAll(JsonDocument &doc)
@@ -323,9 +404,34 @@ void sendJsonToAll(JsonDocument &doc)
 
 void handleWiFiScan(AsyncWebServerRequest *request)
 {
+    // Asynchronous scan so we never block the AsyncTCP task. A blocking
+    // WiFi.scanNetworks() in this context fails/hangs while connected (STA).
+    int n = WiFi.scanComplete();
+
+    if (n == WIFI_SCAN_FAILED || n == -2)
+    {
+        // No scan in progress -> kick one off. Make sure a station interface
+        // exists for scanning without tearing down the AP (captive portal).
+        wifi_mode_t mode = WiFi.getMode();
+        if (mode == WIFI_AP)
+            WiFi.mode(WIFI_AP_STA);
+        else if (mode == WIFI_OFF)
+            WiFi.mode(WIFI_STA);
+
+        WiFi.scanNetworks(true); // async
+        request->send(202, "application/json", "{\"scanning\":true}");
+        return;
+    }
+
+    if (n == WIFI_SCAN_RUNNING || n == -1)
+    {
+        request->send(202, "application/json", "{\"scanning\":true}");
+        return;
+    }
+
+    // n >= 0 : results ready
     JsonDocument doc;
     JsonArray networks = doc["networks"].to<JsonArray>();
-    int n = WiFi.scanNetworks();
     for (int i = 0; i < n; ++i)
     {
         JsonObject net = networks.add<JsonObject>();
@@ -334,6 +440,7 @@ void handleWiFiScan(AsyncWebServerRequest *request)
         net["rssi"] = WiFi.RSSI(i);
         net["enc"] = (WiFi.encryptionType(i) == WIFI_AUTH_OPEN) ? false : true;
     }
+    WiFi.scanDelete(); // free results so the next request starts a fresh scan
 
     String json;
     serializeJson(doc, json);
@@ -427,6 +534,8 @@ void websocketLoop()
         doc["printerConnection"] = printerVariables.online;
         doc["clients"] = ws.count();
         doc["stg_cur"] = printerVariables.stage;
+        doc["masterEnable"] = haVariables.masterEnable; // live state so the web toggle reflects HA changes
+        doc["haConnected"] = haVariables.connected;     // HA broker connection status for the header indicator
         sendJsonToAll(doc);
     }
 }
@@ -576,6 +685,13 @@ void setupWebserver()
             delay(500);
     }
 
+    // Advertise the web UI over mDNS so it is reachable at http://<host>.local
+    // (default http://blled.local) and discoverable by network/HA scanners.
+    MDNS.addService("http", "tcp", 80);
+    LogSerial.print(F("[MDNS] Web UI available at http://"));
+    LogSerial.print(globalVariables.Host);
+    LogSerial.println(F(".local"));
+
     LogSerial.println(F("Setting up webserver"));
 
     webServer.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
@@ -589,6 +705,7 @@ void setupWebserver()
     webServer.on("/fwupdate", HTTP_GET, handleUpdatePage);
     webServer.on("/getConfig", HTTP_GET, handleGetConfig);
     webServer.on("/submitConfig", HTTP_POST, handleSubmitConfig);
+    webServer.on("/setEnable", HTTP_GET, handleSetEnable);
     webServer.on("/blled.svg", HTTP_GET, handleGetIcon);
     webServer.on("/favicon.ico", HTTP_GET, handleGetfavicon);
     webServer.on("/particleCanvas.js", HTTP_GET, handleGetPCC);

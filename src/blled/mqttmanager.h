@@ -417,6 +417,9 @@ else // Door closed
                 if (mqttgcodeState == "RUNNING")
                 {
                     printerVariables.overridestage = 999; // Reset after special HMS override
+                    // In Hybrid mode, a print start hands control back to the printer
+                    // (clears any sticky Home Assistant override).
+                    haVariables.overrideActive = false;
                 }
 
                 if (mqttgcodeState == "FINISH")
@@ -462,6 +465,7 @@ else // Door closed
                     {
                         printerVariables.printerledstate = (light["mode"] == "on");
                         printerConfig.replicate_update = true;
+                        haVariables.overrideActive = false; // printer chamber light changed -> release HA override (Hybrid)
                         if (printerConfig.debugingchange || printerConfig.debuging)
                         {
                             LogSerial.print(F("[MQTT] chamber_light now: "));
@@ -487,6 +491,7 @@ else // Door closed
                 {
                     printerVariables.printerledstate = (messageobject["system"]["led_mode"] == "on");
                     printerConfig.replicate_update = true;
+                    haVariables.overrideActive = false; // printer light button -> release HA override (Hybrid)
                     lastMQTTupdate = millis();
                     if (printerConfig.debugingchange || printerConfig.debuging)
                     {

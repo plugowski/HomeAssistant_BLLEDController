@@ -8,6 +8,7 @@ unsigned long restartRequestTime = 0;
 #include "./blled/bblPrinterDiscovery.h"
 #include "./blled/web-server.h"
 #include "./blled/mqttmanager.h"
+#include "./blled/hamanager.h"
 #include "./blled/serialmanager.h"
 #include "./blled/wifi-manager.h"
 #include "./blled/ssdp.h"
@@ -95,6 +96,9 @@ void setup()
     setupMqtt();
     // >>> Fix: prevent false offline after 30s
     printerVariables.disconnectMQTTms = millis();
+    // Start the Home Assistant MQTT integration (no-op if disabled / unconfigured)
+    setupHa();
+    startHaMqttTask(); // service HA MQTT in its own task so it is never blocked by the main loop
     Serial.println();
     Serial.print(F("** BLLED Controller started "));
     Serial.print(F("using firmware version: "));
@@ -102,6 +106,16 @@ void setup()
     Serial.println(F(" **"));
     Serial.println();
     globalVariables.started = true;
+
+    // Tell the user how to reach the web UI.
+    LogSerial.println();
+    LogSerial.print(F("** Web UI: http://"));
+    LogSerial.print(globalVariables.Host);
+    LogSerial.print(F(".local   (or http://"));
+    LogSerial.print(WiFi.localIP().toString());
+    LogSerial.println(F(") **"));
+    LogSerial.println();
+
     Serial.println(F("Updating LEDs from Setup"));
     updateleds();
 }
@@ -113,6 +127,7 @@ void loop()
     {
         websocketLoop();
         ledsloop();
+        // haLoop() now runs in its own FreeRTOS task (see startHaMqttTask) for responsiveness
 
         if (WiFi.status() != WL_CONNECTED)
         {

@@ -146,33 +146,51 @@
             setTimeout(() => toast.classList.remove("show"), 3000);
         }
 
-        async function loadNetworks() {
-            try {
-                alertToast("info", "Retrieving network scan, please wait...");
-                const res = await fetch("/wifiScan");
-                const data = await res.json();
-                const container = document.getElementById("networks");
-                container.innerHTML = "";
+        function renderNetworks(networks) {
+            const container = document.getElementById("networks");
+            container.innerHTML = "";
+            (networks || []).forEach(net => {
+                net.bssid = net.bssid || "";
 
-                data.networks.forEach(net => {
-                    net.bssid = net.bssid || "";
-
-                    const div = document.createElement("div");
-                    div.className = "network";
-                    div.innerHTML = `
+                const div = document.createElement("div");
+                div.className = "network";
+                div.innerHTML = `
                 ${getSignalSVG(net.rssi)} ${getSignalPercent(net.rssi)} ${net.ssid} <span style="font-size: 11px;">(${net.bssid})</span> ${getLockIcon(net.enc)}
             `;
-                    div.style.cursor = "pointer";
-                    div.style.padding = "4px 8px";
-                    div.style.borderBottom = "1px solid #ddd";
+                div.style.cursor = "pointer";
+                div.style.padding = "4px 8px";
+                div.style.borderBottom = "1px solid #ddd";
 
-                    div.addEventListener("click", () => {
-                        document.getElementById("ssid").value = net.ssid;
-                        document.getElementById("bssid").value = net.bssid;  // ← BSSID übernehmen
-                    });
-
-                    container.appendChild(div);
+                div.addEventListener("click", () => {
+                    document.getElementById("ssid").value = net.ssid;
+                    document.getElementById("bssid").value = net.bssid;  // ← BSSID übernehmen
                 });
+
+                container.appendChild(div);
+            });
+            if (!networks || networks.length === 0) {
+                container.innerText = "No networks found.";
+            }
+        }
+
+        // The device scans asynchronously and returns {scanning:true} until results
+        // are ready, so poll until we get the networks list.
+        async function loadNetworks() {
+            const container = document.getElementById("networks");
+            container.innerText = "Scanning...";
+            alertToast("info", "Retrieving network scan, please wait...");
+            try {
+                for (let attempt = 0; attempt < 20; attempt++) {
+                    const res = await fetch("/wifiScan");
+                    const data = await res.json();
+                    if (data && data.networks) {
+                        renderNetworks(data.networks);
+                        return;
+                    }
+                    await new Promise(r => setTimeout(r, 800));
+                }
+                container.innerText = "Scan timed out, please try again.";
+                alertToast("error", "Network scan timed out.");
             } catch (err) {
                 document.getElementById("networks").innerText = "Failed to load networks.";
                 console.error(err);

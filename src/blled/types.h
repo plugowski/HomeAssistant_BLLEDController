@@ -1,6 +1,11 @@
 #ifndef _TYPES
 #define _TYPES
 
+// Home Assistant colour-temperature range (mireds). 153 = ~6500K (cold),
+// 500 = ~2000K (warm). Used to map HA color_temp to the warm/cold white channels.
+#define HA_MIRED_MIN 153
+#define HA_MIRED_MAX 500
+
 #ifdef __cplusplus
 extern "C"
 {
@@ -124,11 +129,71 @@ extern "C"
         COLOR bedTempRGB;
         // HMS Error Handling
         String hmsIgnoreList; // comma-separated list of HMS_XXXX_XXXX_XXXX_XXXX codes to ignore
-        
+
+        // === Home Assistant integration & operating mode ===
+        // Operating mode: how the LED strip is driven
+        //   0 = LED_MODE_PRINTER  -> driven only by the printer (original behaviour)
+        //   1 = LED_MODE_HA       -> driven only by Home Assistant (printer state ignored)
+        //   2 = LED_MODE_HYBRID   -> printer drives the strip, but Home Assistant can override
+        int ledControlMode = 2;          // default Hybrid
+
+        bool haEnabled = false;          // Enable the Home Assistant MQTT connection
+        char haMqttHost[40] = "";        // Home Assistant MQTT broker host / IP
+        int  haMqttPort = 1883;          // Home Assistant MQTT broker port
+        char haMqttUser[40] = "";        // Home Assistant MQTT username (optional)
+        char haMqttPass[64] = "";        // Home Assistant MQTT password (optional)
+
+        // Offline (printer unreachable) behaviour
+        // Instead of getting "stuck" on the last colour, dim the strip after a timeout
+        // while the firmware keeps retrying the printer connection in the background.
+        bool offlineDimEnabled = true;   // dim the strip when the printer is unreachable
+        int  offlineDimAfterSec = 60;    // seconds offline before dimming
+        int  offlineDimBrightness = 5;   // dim brightness in % (0 = fully off)
 
     } PrinterConfig;
 
     PrinterConfig printerConfig;
+
+    // Runtime state for the Home Assistant integration (not all persisted).
+    typedef struct HAVariablesStruct
+    {
+        bool masterEnable = true;       // HA "enable" switch. When false the strip is forced OFF.
+        bool overrideActive = false;    // Hybrid: HA has taken control until the printer state changes again
+        bool lightOn = false;           // HA light desired on/off state
+        short r = 255;                  // HA light colour
+        short g = 255;
+        short b = 255;
+        int brightness = 100;           // HA light brightness, 0-100 (%)
+        int transitionMs = 500;         // fade duration for HA colour/brightness changes (ms)
+        int colorMode = 1;              // HA desired colour mode: 0 = rgb, 1 = color_temp (white)
+        int colorTempMireds = 326;      // HA desired colour temperature (mireds, ~3000K)
+
+        // Reported (actual) strip state mirrored to HA, so the light entity always
+        // reflects what is physically lit - whether the printer or HA set it.
+        bool reportedOn = false;
+        short reportedR = 0;
+        short reportedG = 0;
+        short reportedB = 0;
+        int reportedBrightness = 0;     // 0-255 (actual PWM level)
+        bool reportedIsTemp = false;    // true = strip is showing white (report as color_temp)
+        int reportedMireds = 326;       // actual colour temperature when reportedIsTemp
+
+        // Connection / publishing bookkeeping (volatile)
+        bool connected = false;         // HA broker currently connected
+        bool discoverySent = false;     // discovery configs published since last connect
+        bool stateDirty = true;         // a state change needs to be published to HA
+        unsigned long lastReconnectMs = 0;
+    } HAVariables;
+
+    HAVariables haVariables;
+
+    // Operating mode constants (kept as plain ints for easy JSON persistence)
+    enum LedControlMode
+    {
+        LED_MODE_PRINTER = 0,
+        LED_MODE_HA = 1,
+        LED_MODE_HYBRID = 2
+    };
 
 #ifdef __cplusplus
 } /*extern "C"*/

@@ -52,6 +52,57 @@ COLOR hex2rgb(String hex, short ww_value = 0, short cw_value = 0)
     return color;
 }
 
+// Mirror the ACTUAL strip output to Home Assistant. Called whenever the strip
+// changes (printer-driven or HA-driven) so the HA light entity reflects what is
+// physically lit and can always be toggled from HA.
+void markHaReported()
+{
+    int rgbMax = currentRed;
+    if (currentGreen > rgbMax) rgbMax = currentGreen;
+    if (currentBlue > rgbMax) rgbMax = currentBlue;
+    int allMax = rgbMax;
+    if (currentWarm > allMax) allMax = currentWarm;
+    if (currentCold > allMax) allMax = currentCold;
+
+    int whiteMax = currentWarm;
+    if (currentCold > whiteMax) whiteMax = currentCold;
+
+    bool on = (allMax > 0);
+    bool isTemp = false;
+    short rr = 0, gg = 0, bb = 0;
+    int mireds = haVariables.reportedMireds;
+
+    if (rgbMax > 0)
+    {
+        // RGB takes priority: normalise so HA shows the pure hue, brightness carries level.
+        rr = (short)((long)currentRed * 255 / rgbMax);
+        gg = (short)((long)currentGreen * 255 / rgbMax);
+        bb = (short)((long)currentBlue * 255 / rgbMax);
+    }
+    else if (whiteMax > 0)
+    {
+        // Warm/cold white -> report as a colour temperature so HA shows the white tint.
+        isTemp = true;
+        int total = currentWarm + currentCold;
+        float warmFrac = total > 0 ? (float)currentWarm / (float)total : 0.5f;
+        mireds = HA_MIRED_MIN + (int)(warmFrac * (HA_MIRED_MAX - HA_MIRED_MIN));
+    }
+
+    if (on != haVariables.reportedOn || isTemp != haVariables.reportedIsTemp ||
+        rr != haVariables.reportedR || gg != haVariables.reportedG || bb != haVariables.reportedB ||
+        mireds != haVariables.reportedMireds || allMax != haVariables.reportedBrightness)
+    {
+        haVariables.reportedOn = on;
+        haVariables.reportedIsTemp = isTemp;
+        haVariables.reportedR = rr;
+        haVariables.reportedG = gg;
+        haVariables.reportedB = bb;
+        haVariables.reportedMireds = mireds;
+        haVariables.reportedBrightness = allMax;
+        haVariables.stateDirty = true; // HA task will publish it
+    }
+}
+
 void tweenToColor(int targetRed, int targetGreen, int targetBlue, int targetWarm, int targetCold, int duration = 500)
 {
 
@@ -124,6 +175,7 @@ void tweenToColor(int targetRed, int targetGreen, int targetBlue, int targetWarm
     ledcWrite(blueChannel, currentBlue);
     ledcWrite(warmChannel, currentWarm);
     ledcWrite(coldChannel, currentCold);
+    markHaReported();
 }
 
 // Helper functions to allow changes colors by using a string or integer hex code
@@ -159,6 +211,109 @@ void tweenToColor(int hexValue, short ww_value = 0, short cw_value = 0)
     targetcolor.cw = cw_value;
     tweenToColor(targetcolor.r, targetcolor.g, targetcolor.b, targetcolor.ww, targetcolor.cw);
 }
+// ---------------------------------------------------------------------------
+// Raw LED setter (used by the Home Assistant integration and the offline-dim
+// indicator). Unlike tweenToColor() it does NOT apply the global
+// printerConfig.brightness multiplier - the caller passes final 0-255 values.
+// ---------------------------------------------------------------------------
+void setLedsRaw(int targetRed, int targetGreen, int targetBlue, int targetWarm, int targetCold, int duration = 300)
+{
+    targetRed = constrain(targetRed, 0, 255);
+    targetGreen = constrain(targetGreen, 0, 255);
+    targetBlue = constrain(targetBlue, 0, 255);
+    targetWarm = constrain(targetWarm, 0, 255);
+    targetCold = constrain(targetCold, 0, 255);
+
+    if (targetRed == currentRed && targetGreen == currentGreen && targetBlue == currentBlue &&
+        targetWarm == currentWarm && targetCold == currentCold)
+    {
+        return; // already there - nothing to do
+    }
+
+    float stepTime = (float)duration / 255.0;
+    int redStep = (targetRed - currentRed) / 255;
+    int greenStep = (targetGreen - currentGreen) / 255;
+    int blueStep = (targetBlue - currentBlue) / 255;
+    int warmStep = (targetWarm - currentWarm) / 255;
+    int coldStep = (targetCold - currentCold) / 255;
+
+    for (int i = 0; i < 256; i++)
+    {
+        currentRed += redStep;
+        currentGreen += greenStep;
+        currentBlue += blueStep;
+        currentWarm += warmStep;
+        currentCold += coldStep;
+        ledcWrite(redChannel, currentRed);
+        ledcWrite(greenChannel, currentGreen);
+        ledcWrite(blueChannel, currentBlue);
+        ledcWrite(warmChannel, currentWarm);
+        ledcWrite(coldChannel, currentCold);
+        delay(stepTime);
+    }
+
+    currentRed = targetRed;
+    currentGreen = targetGreen;
+    currentBlue = targetBlue;
+    currentWarm = targetWarm;
+    currentCold = targetCold;
+    ledcWrite(redChannel, currentRed);
+    ledcWrite(greenChannel, currentGreen);
+    ledcWrite(blueChannel, currentBlue);
+    ledcWrite(warmChannel, currentWarm);
+    ledcWrite(coldChannel, currentCold);
+    markHaReported();
+}
+
+// Apply the Home Assistant light state to the strip. HA owns brightness here,
+// so we scale the stored RGB colour by the HA brightness (0-100%).
+void applyHaLight()
+{
+    if (!haVariables.lightOn || haVariables.brightness <= 0)
+    {
+        setLedsRaw(0, 0, 0, 0, 0, haVariables.transitionMs);
+        return;
+    }
+    float scale = (float)haVariables.brightness / 100.0;
+
+    if (haVariables.colorMode == 1)
+    {
+        // Colour-temperature mode -> drive the warm/cold white channels.
+        // More mireds = warmer = more warm white.
+        float warmFrac = (float)(haVariables.colorTempMireds - HA_MIRED_MIN) /
+                         (float)(HA_MIRED_MAX - HA_MIRED_MIN);
+        warmFrac = constrain(warmFrac, 0.0f, 1.0f);
+        int ww = (int)(255 * scale * warmFrac);
+        int cw = (int)(255 * scale * (1.0f - warmFrac));
+        setLedsRaw(0, 0, 0, ww, cw, haVariables.transitionMs);
+    }
+    else
+    {
+        // RGB mode -> drive the colour channels.
+        setLedsRaw((int)(haVariables.r * scale),
+                   (int)(haVariables.g * scale),
+                   (int)(haVariables.b * scale),
+                   0, 0, haVariables.transitionMs);
+    }
+}
+
+// Dim "connecting" indicator shown when the printer is unreachable. The MQTT
+// task keeps retrying the connection in the background, so this is purely a
+// low-power visual hint rather than a stuck full-brightness colour.
+void applyOfflineDim()
+{
+    if (printerConfig.offlineDimBrightness <= 0)
+    {
+        setLedsRaw(0, 0, 0, 0, 0);
+        return;
+    }
+    float scale = (float)printerConfig.offlineDimBrightness / 100.0;
+    setLedsRaw((int)(printerConfig.wifiRGB.r * scale),
+               (int)(printerConfig.wifiRGB.g * scale),
+               (int)(printerConfig.wifiRGB.b * scale),
+               0, 0);
+}
+
 float hue = 0.0;
 
 void RGBCycle()
@@ -287,6 +442,45 @@ void updateleds()
     {
         printerConfig.replicate_update = false;
     }
+
+    // Log-once trackers so the auto-off / dim states don't spam the console when
+    // updateleds() is re-evaluated periodically.
+    static bool masterOffLogged = false;
+    static bool offlineDimLogged = false;
+    if (printerVariables.online)
+        offlineDimLogged = false; // allow logging again on the next offline episode
+
+    // === BLLED operating mode + Home Assistant override =========================
+    // "Enable BLLED Light Control" (master enable) forces the strip OFF regardless
+    // of everything else - this is what an HA automation toggles to fully disable
+    // the LEDs (e.g. when the printer is powered down).
+    if (haVariables.masterEnable == false)
+    {
+        setLedsRaw(0, 0, 0, 0, 0);
+        if (!masterOffLogged)
+        {
+            printLogs("BLLED control disabled - OFF", 0, 0, 0, 0, 0);
+            masterOffLogged = true;
+        }
+        return;
+    }
+    masterOffLogged = false;
+    // HA-only mode: the printer state is ignored, Home Assistant fully owns the strip.
+    if (printerConfig.ledControlMode == LED_MODE_HA)
+    {
+        applyHaLight();
+        return;
+    }
+    // Hybrid mode: if HA has issued a command it overrides the printer until the
+    // next significant printer event (print start) clears the override.
+    if (printerConfig.ledControlMode == LED_MODE_HYBRID && haVariables.overrideActive)
+    {
+        applyHaLight();
+        return;
+    }
+    // Otherwise (Printer-only mode, or Hybrid with no active override) fall through
+    // to the original printer-driven logic below.
+    // ===========================================================================
 
     // Maintenance Mode - White lights on regardless of printer power, WiFi or MQTT connection
     // priortised over Wifi Strength Display or Custom TEST color
@@ -558,11 +752,23 @@ void updateleds()
 
     // OFF -- OFF -- OFF -- OFF
 
-    // printer offline and MQTT disconnect more than 5 seconds.
-    if (printerVariables.online == false && (millis() - printerVariables.disconnectMQTTms) >= 30000)
+    // Printer offline / MQTT disconnected for longer than the configured grace time.
+    // Instead of getting stuck on the last colour we either dim a low-power
+    // "connecting" indicator (default) or turn fully off, while the MQTT task keeps
+    // retrying the connection in the background until it succeeds.
+    if (printerVariables.online == false &&
+        (millis() - printerVariables.disconnectMQTTms) >= ((unsigned long)printerConfig.offlineDimAfterSec * 1000UL))
     {
-        tweenToColor(0, 0, 0, 0, 0); // OFF
-        printLogs("Printer offline", 0, 0, 0, 0, 0);
+        if (printerConfig.offlineDimEnabled)
+        {
+            applyOfflineDim();
+            if (!offlineDimLogged) { printLogs("Printer offline - dimmed", printerConfig.offlineDimBrightness, 0, 0, 0, 0); offlineDimLogged = true; }
+        }
+        else
+        {
+            tweenToColor(0, 0, 0, 0, 0); // OFF (legacy behaviour)
+            if (!offlineDimLogged) { printLogs("Printer offline", 0, 0, 0, 0, 0); offlineDimLogged = true; }
+        }
         return;
     }
 
@@ -742,6 +948,21 @@ void setupLeds()
 void ledsloop()
 {
     RGBCycle();
+
+    // While the printer is offline no MQTT messages arrive to trigger updateleds(),
+    // so periodically re-evaluate ONLY in printer-driven modes - this is what lets
+    // the offline-dim timeout kick in. We skip this when the strip is master-disabled
+    // or HA-controlled, since those are event-driven and would otherwise spam the log.
+    static unsigned long lastForcedEval = 0;
+    if ((millis() - lastForcedEval) > 2000 &&
+        printerVariables.online == false &&
+        haVariables.masterEnable &&
+        printerConfig.ledControlMode != LED_MODE_HA &&
+        !(printerConfig.ledControlMode == LED_MODE_HYBRID && haVariables.overrideActive))
+    {
+        lastForcedEval = millis();
+        updateleds();
+    }
     if ((millis() - lastUpdatems) > 30000 && (printerConfig.maintMode || printerConfig.testcolorEnabled || printerConfig.discoMode || printerConfig.debugwifi))
     {
         LogSerial.print(F("["));

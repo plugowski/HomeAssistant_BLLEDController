@@ -124,6 +124,25 @@ void saveFileSystem()
     json["bedTempCW"] = printerConfig.bedTempRGB.cw;
     //HMS Error handling
     json["hmsIgnoreList"] = printerConfig.hmsIgnoreList;
+    // Home Assistant integration & operating mode
+    json["ledControlMode"] = printerConfig.ledControlMode;
+    json["haEnabled"] = printerConfig.haEnabled;
+    json["haMqttHost"] = printerConfig.haMqttHost;
+    json["haMqttPort"] = printerConfig.haMqttPort;
+    json["haMqttUser"] = printerConfig.haMqttUser;
+    json["haMqttPass"] = printerConfig.haMqttPass;
+    json["offlineDimEnabled"] = printerConfig.offlineDimEnabled;
+    json["offlineDimAfterSec"] = printerConfig.offlineDimAfterSec;
+    json["offlineDimBrightness"] = printerConfig.offlineDimBrightness;
+    // Home Assistant runtime state (persisted so HA-only mode restores after a reboot)
+    json["haMasterEnable"] = haVariables.masterEnable;
+    json["haLightOn"] = haVariables.lightOn;
+    json["haR"] = haVariables.r;
+    json["haG"] = haVariables.g;
+    json["haB"] = haVariables.b;
+    json["haBrightness"] = haVariables.brightness;
+    json["haColorMode"] = haVariables.colorMode;
+    json["haColorTemp"] = haVariables.colorTempMireds;
 
     File configFile = LittleFS.open(configPath, "w");
     if (!configFile)
@@ -230,6 +249,25 @@ void loadFileSystem()
         printerConfig.bedTempRGB = hex2rgb(json["bedTempRGB"], json["bedTempWW"], json["bedTempCW"]);
         // HMS Error handling
         printerConfig.hmsIgnoreList = json["hmsIgnoreList"] | "";
+        // Home Assistant integration & operating mode (defaults keep old configs working)
+        printerConfig.ledControlMode = json["ledControlMode"] | 2;
+        printerConfig.haEnabled = json["haEnabled"] | false;
+        strlcpy(printerConfig.haMqttHost, json["haMqttHost"] | "", sizeof(printerConfig.haMqttHost));
+        printerConfig.haMqttPort = json["haMqttPort"] | 1883;
+        strlcpy(printerConfig.haMqttUser, json["haMqttUser"] | "", sizeof(printerConfig.haMqttUser));
+        strlcpy(printerConfig.haMqttPass, json["haMqttPass"] | "", sizeof(printerConfig.haMqttPass));
+        printerConfig.offlineDimEnabled = json["offlineDimEnabled"] | true;
+        printerConfig.offlineDimAfterSec = json["offlineDimAfterSec"] | 60;
+        printerConfig.offlineDimBrightness = json["offlineDimBrightness"] | 5;
+        // Home Assistant runtime state
+        haVariables.masterEnable = json["haMasterEnable"] | true;
+        haVariables.lightOn = json["haLightOn"] | false;
+        haVariables.r = json["haR"] | 255;
+        haVariables.g = json["haG"] | 255;
+        haVariables.b = json["haB"] | 255;
+        haVariables.brightness = json["haBrightness"] | 100;
+        haVariables.colorMode = json["haColorMode"] | 1;
+        haVariables.colorTempMireds = json["haColorTemp"] | 326;
 
         LogSerial.println(F("[Filesystem] Loaded config"));
     }

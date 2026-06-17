@@ -2,7 +2,24 @@
 
 The BL Led Controller is an ESP32 based device that connects to your Bambulab X1,X1C,P1P Or P1S and controls the LED strip based on the state of the printer.
 
+> **This fork** ([plugowski/HomeAssistant_BLLEDController](https://github.com/plugowski/HomeAssistant_BLLEDController)) builds on DutchDeveloper's original firmware and adds full **Home Assistant** integration plus independent control of the LED strip. See the [Home Assistant guide](docs/home-assistant.md) for full details.
+
+### What this fork adds
+
+- **Home Assistant via MQTT Discovery** – the device opens a second MQTT connection to your Home Assistant broker (Mosquitto) and auto-creates entities with no YAML: a **light** (RGB **and** warm/cold-white colour temperature + brightness, with smooth transitions), a **mode select**, and a master **enable switch**.
+- **Three operating modes** – *Printer only* (original behaviour), *Home Assistant only* (HA fully controls the strip), and *Hybrid* (the printer drives the strip but Home Assistant can override colour/temperature or force it off; the override is released when a print starts or the printer's chamber light is toggled).
+- **Live state mirroring** – the HA light always reflects what is physically lit, whether set by the printer (printing, errors, etc.) or by Home Assistant, so you can always see and override the current state.
+- **Master "Enable BLLED Light Control"** – a top-level switch (web UI **and** HA) that forces the strip fully off in any mode, e.g. via an automation when the printer is powered down. It applies instantly and stays in sync both ways.
+- **Smarter offline behaviour** – instead of getting stuck on the last colour when the printer is unreachable, the strip dims after a configurable timeout and keeps retrying the connection in the background.
+- **mDNS** – reach the web UI at `http://blled.local` (follows the device name), and a "Visit device" link to the web UI appears on the Home Assistant device page.
+
+![home assistant setup](./docs/home_assistant_setup.jpg)
+![home assistant preview](./docs/home_assistant_preview.jpg)
+
 ### Flashing and Setup
+
+> **For this fork (with Home Assistant support):** flash the latest build from **[tech.lugowski.dev/firmware](https://tech.lugowski.dev/firmware/)**. The original DutchDeveloper flasher below installs the upstream firmware *without* the Home Assistant features.
+
 1. go to the [Web Flasher](https://dutchdevelop.github.io/blledsetup/) (Or [here](https://softwarecrash.github.io/BLLED-Flasher/) for Nightly and Dev builds)
 2. connect your ESP32
 3. Select the Firmware build you want
@@ -68,12 +85,15 @@ In embedded applications, HTML content is efficiently stored in PROGMEM memory. 
 The BL Led Controller is released under Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0) license. See the [LICENSE](https://github.com/DutchDevelop/BLLEDController/blob/main/LICENSE) file for more details.
 
 ### Credits
-- **[DutchDeveloper](https://dutchdevelop.com/)**: Lead programmer
+- **[DutchDeveloper](https://dutchdevelop.com/)**: Lead programmer / original author
 - **[Modbot](https://github.com/Modbot)**: Tester for X1C, P1P & P1S
 - **[xps3riments](https://github.com/xps3riments)**: Inspiration for the foundation of the code
 - **[longrackslabs](https://github.com/longrackslabs)**: Build process, documentation, developer & community support
 - **[SoftWareCrash](https://github.com/softwarecrash)**: Any small unimportant changes
+- **[plugowski (Pawel Lugowski)](https://github.com/plugowski)**: This fork – Home Assistant MQTT Discovery integration, operating modes (Printer / HA / Hybrid), colour-temperature (warm/cold white) control, live state mirroring, master enable switch, offline-dim behaviour, mDNS and web UI improvements. Builds: [tech.lugowski.dev/firmware](https://tech.lugowski.dev/firmware/)
 
 ### Author
 
 This project was created by [DutchDeveloper](https://dutchdevelop.com/).
+
+The Home Assistant integration fork is maintained by [Pawel Lugowski](https://tech.lugowski.dev/) ([plugowski](https://github.com/plugowski)).
