@@ -134,6 +134,15 @@ void saveFileSystem()
     json["offlineDimEnabled"] = printerConfig.offlineDimEnabled;
     json["offlineDimAfterSec"] = printerConfig.offlineDimAfterSec;
     json["offlineDimBrightness"] = printerConfig.offlineDimBrightness;
+    // WiFi RF tuning
+    json["wifiTxPower"] = printerConfig.wifiTxPower;
+    json["wifiSleepEnabled"] = printerConfig.wifiSleepEnabled;
+    // Subsystem isolation
+    json["wifiRadioEnabled"] = printerConfig.wifiRadioEnabled;
+    json["diagEnableMqtt"] = printerConfig.diagEnableMqtt;
+    json["diagEnableHa"] = printerConfig.diagEnableHa;
+    json["diagEnableSsdp"] = printerConfig.diagEnableSsdp;
+    json["diagEnableBblScan"] = printerConfig.diagEnableBblScan;
     // Home Assistant runtime state (persisted so HA-only mode restores after a reboot)
     json["haMasterEnable"] = haVariables.masterEnable;
     json["haLightOn"] = haVariables.lightOn;
@@ -191,21 +200,31 @@ void loadFileSystem()
 
     if (!deserializeError)
     {
-        strcpy(globalVariables.SSID, json["ssid"]);
-        strcpy(globalVariables.APPW, json["appw"]);
+        strlcpy(globalVariables.SSID, json["ssid"] | "", sizeof(globalVariables.SSID));
+        strlcpy(globalVariables.APPW, json["appw"] | "", sizeof(globalVariables.APPW));
         const char *hostValue = json["host"] | "BLLED";
         globalVariables.Host = hostValue;
 
         strlcpy(securityVariables.HTTPUser, json["HTTPUser"] | "", sizeof(securityVariables.HTTPUser));
         strlcpy(securityVariables.HTTPPass, json["HTTPPass"] | "", sizeof(securityVariables.HTTPPass));
-        strcpy(printerConfig.printerIP, json["printerIp"]);
-        strcpy(printerConfig.accessCode, json["accessCode"]);
-        strcpy(printerConfig.serialNumber, json["serialNumber"]);
-        strcpy(printerConfig.BSSID, json["bssi"]);
-        printerConfig.brightness = json["brightness"];
+        strlcpy(printerConfig.printerIP,    json["printerIp"]     | "", sizeof(printerConfig.printerIP));
+        strlcpy(printerConfig.accessCode,   json["accessCode"]    | "", sizeof(printerConfig.accessCode));
+        strlcpy(printerConfig.serialNumber, json["serialNumber"]  | "", sizeof(printerConfig.serialNumber));
+        strlcpy(printerConfig.BSSID,        json["bssi"]          | "", sizeof(printerConfig.BSSID));
+
+        {
+            int rawBr = json["brightness"] | -1;
+            printerConfig.brightness = constrain(rawBr <= 0 ? 20 : rawBr, 1, 100);
+            if (rawBr <= 0 || rawBr > 100)
+                Serial.printf("[CFG] brightness corrected: raw=%d -> %d\n", rawBr, printerConfig.brightness);
+        }
         // LED Behaviour (Choose One)
         printerConfig.maintMode = json["maintMode"];
         printerConfig.discoMode = json["discoMode"];
+        if (printerConfig.discoMode) {
+            Serial.println(F("[CFG] discoMode=true in stored config — RESET to false at boot (transient state)"));
+            printerConfig.discoMode = false;
+        }
         printerConfig.replicatestate = json["replicatestate"];
         // Running Color
         printerConfig.runningColor = hex2rgb(json["runningRGB"], json["runningWW"], json["runningCW"]);
@@ -217,10 +236,15 @@ void loadFileSystem()
         printerConfig.finishindication = json["finishindication"];
         printerConfig.finishColor = hex2rgb(json["finishColor"], json["finishWW"], json["finishCW"]);
         printerConfig.finishExit = json["finishExit"];
-        printerConfig.finishTimeOut = json["finishTimerMins"];
+        printerConfig.finishTimeOut = json["finishTimerMins"] | 600000;
         printerConfig.finish_check = json["finish_check"];
         printerConfig.inactivityEnabled = json["inactivityEnabled"];
-        printerConfig.inactivityTimeOut = json["inactivityTimeOut"];
+        {
+            int rawTimeout = json["inactivityTimeOut"] | 3600000;
+            printerConfig.inactivityTimeOut = max(rawTimeout, 60000);
+            if (rawTimeout < 60000)
+                Serial.printf("[CFG] inactivityTimeOut corrected: raw=%d -> min 60000ms\n", rawTimeout);
+        }
         printerConfig.controlChamberLight = json["controlChamberLight"]; //control chamber light
         // Debugging
         printerConfig.debuging = json["debuging"];
@@ -259,6 +283,15 @@ void loadFileSystem()
         printerConfig.offlineDimEnabled = json["offlineDimEnabled"] | true;
         printerConfig.offlineDimAfterSec = json["offlineDimAfterSec"] | 60;
         printerConfig.offlineDimBrightness = json["offlineDimBrightness"] | 5;
+        // WiFi RF tuning
+        printerConfig.wifiTxPower = json["wifiTxPower"] | 11;
+        printerConfig.wifiSleepEnabled = json["wifiSleepEnabled"] | true;
+        // Subsystem isolation — default true so existing configs keep full behaviour
+        printerConfig.wifiRadioEnabled = json["wifiRadioEnabled"] | true;
+        printerConfig.diagEnableMqtt = json["diagEnableMqtt"] | true;
+        printerConfig.diagEnableHa = json["diagEnableHa"] | true;
+        printerConfig.diagEnableSsdp = json["diagEnableSsdp"] | true;
+        printerConfig.diagEnableBblScan = json["diagEnableBblScan"] | true;
         // Home Assistant runtime state
         haVariables.masterEnable = json["haMasterEnable"] | true;
         haVariables.lightOn = json["haLightOn"] | false;
@@ -268,6 +301,28 @@ void loadFileSystem()
         haVariables.brightness = json["haBrightness"] | 100;
         haVariables.colorMode = json["haColorMode"] | 1;
         haVariables.colorTempMireds = json["haColorTemp"] | 326;
+
+        // === STARTUP CONFIG DUMP — compare against a fresh-erase boot to isolate noise cause ===
+        Serial.println(F("=== CONFIG DUMP ==="));
+        Serial.printf("[CFG] accessCode     : len=%d (first4='%.4s')\n",
+                      (int)strlen(printerConfig.accessCode), printerConfig.accessCode);
+        Serial.printf("[CFG] printerIP      : %s\n", printerConfig.printerIP);
+        Serial.printf("[CFG] serialNumber   : %s\n", printerConfig.serialNumber);
+        Serial.printf("[CFG] brightness     : %d\n", printerConfig.brightness);
+        Serial.printf("[CFG] discoMode      : %d  maintMode=%d  testcolorEn=%d  debugwifi=%d\n",
+                      (int)printerConfig.discoMode, (int)printerConfig.maintMode,
+                      (int)printerConfig.testcolorEnabled, (int)printerConfig.debugwifi);
+        Serial.printf("[CFG] inactivityEn   : %d  timeoutMs=%d (%.1fh)\n",
+                      (int)printerConfig.inactivityEnabled, printerConfig.inactivityTimeOut,
+                      printerConfig.inactivityTimeOut / 3600000.0f);
+        Serial.printf("[CFG] finishIndic    : %d  timeoutMs=%d\n",
+                      (int)printerConfig.finishindication, printerConfig.finishTimeOut);
+        Serial.printf("[CFG] haEnabled      : %d  host='%s'  port=%d\n",
+                      (int)printerConfig.haEnabled, printerConfig.haMqttHost, printerConfig.haMqttPort);
+        Serial.printf("[CFG] ledControlMode : %d  offlineDim: en=%d after=%ds br=%d%%\n",
+                      printerConfig.ledControlMode, (int)printerConfig.offlineDimEnabled,
+                      printerConfig.offlineDimAfterSec, printerConfig.offlineDimBrightness);
+        Serial.println(F("=== END CONFIG DUMP ==="));
 
         LogSerial.println(F("[Filesystem] Loaded config"));
     }

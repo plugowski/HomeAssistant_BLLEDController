@@ -16,6 +16,60 @@ unsigned long restartRequestTime = 0;
 
 int wifi_reconnect_count = 0;
 
+// WiFi + reconnect diagnostics task — prints every 5 s, summarises per minute.
+// Accesses g_mqttConnectAttempts (mqttmanager.h) and g_haConnectAttempts (hamanager.h).
+static void wifiMonitorTask(void *pv)
+{
+    static int prev_mqttAttempts    = 0;
+    static int prev_haAttempts      = 0;
+    static int prev_wifiDrops       = 0;
+    static unsigned long prev_rxMsgs  = 0;
+    static unsigned long prev_rxBytes = 0;
+    unsigned long minuteStartMs     = millis();
+
+    for (;;)
+    {
+        vTaskDelay(pdMS_TO_TICKS(5000));
+
+        Serial.printf("[WiFi] T=%lus status=%d RSSI=%ddBm sleep=%d heap=%u\n",
+                      millis() / 1000,
+                      (int)WiFi.status(),
+                      (int)WiFi.RSSI(),
+                      (int)WiFi.getSleep(),
+                      (unsigned)ESP.getFreeHeap());
+
+        if ((millis() - minuteStartMs) >= 60000)
+        {
+            int mqttDelta = g_mqttConnectAttempts - prev_mqttAttempts;
+            int haDelta   = g_haConnectAttempts   - prev_haAttempts;
+            int wifiDelta = wifi_reconnect_count   - prev_wifiDrops;
+
+            unsigned long rxMsgsDelta  = g_mqttRxMsgs  - prev_rxMsgs;
+            unsigned long rxBytesDelta = g_mqttRxBytes - prev_rxBytes;
+            g_mqttRxMsgsPerMin  = rxMsgsDelta;
+            g_mqttRxBytesPerMin = rxBytesDelta;
+
+            Serial.printf("[DIAG] 1-min: mqttConnects=%d haConnects=%d wifiDrops=%d\n",
+                          mqttDelta, haDelta, wifiDelta);
+            Serial.printf("[MQTT] rxMsgs=%lu/min rxBytes=%lu/min\n", rxMsgsDelta, rxBytesDelta);
+
+            if (mqttDelta > 20)
+                Serial.println(F("[WARN] EXCESSIVE printer MQTT connect rate (>20/min) — check accessCode and printerIP"));
+            if (haDelta > 20)
+                Serial.println(F("[WARN] EXCESSIVE HA MQTT connect rate (>20/min) — check HA broker host/port"));
+            if (wifiDelta > 20)
+                Serial.println(F("[WARN] EXCESSIVE WiFi drop rate (>20/min)"));
+
+            prev_mqttAttempts = g_mqttConnectAttempts;
+            prev_haAttempts   = g_haConnectAttempts;
+            prev_wifiDrops    = wifi_reconnect_count;
+            prev_rxMsgs       = g_mqttRxMsgs;
+            prev_rxBytes      = g_mqttRxBytes;
+            minuteStartMs     = millis();
+        }
+    }
+}
+
 void defaultcolors()
 {
     LogSerial.println(F("Setting default customisable colors"));
@@ -64,6 +118,30 @@ void setup()
     Serial.println(F(""));
 
     tweenToColor(printerConfig.wifiRGB); // Customisable - Default is ORANGE
+
+    if (!printerConfig.wifiRadioEnabled) {
+        Serial.println(F("[DIAG] WiFi radio DISABLED by config — radio off, serial recovery only"));
+        Serial.println(F("[DIAG] To re-enable: send {\"wifiRadio\":true} over USB serial"));
+        WiFi.disconnect(true);
+        WiFi.mode(WIFI_OFF);
+        tweenToColor(50, 0, 50, 0, 0); // dim purple = radio off
+        for (;;) {
+            serialLoop();
+            if (shouldRestart) ESP.restart();
+        }
+    }
+
+#ifdef DEBUG_WIFI_OFF
+    Serial.println(F("[DEBUG] WiFi OFF mode — radio disabled for noise diagnosis"));
+    WiFi.mode(WIFI_OFF);
+    tweenToColor(100, 0, 100, 0, 0); // Purple = WiFi completely off
+    for (;;) {
+        ledsloop();
+        serialLoop();
+        if (shouldRestart) ESP.restart();
+    }
+#endif
+
     setupSerial();
 
     if (strlen(globalVariables.SSID) == 0 || strlen(globalVariables.APPW) == 0)
@@ -90,15 +168,32 @@ void setup()
         setupWebserver();
     }
 
-    start_ssdp();
+    // Start WiFi diagnostics monitor on Core 0 (main loop / led work runs on Core 1)
+    xTaskCreatePinnedToCore(wifiMonitorTask, "wifiMon", 4096, NULL, 1, NULL, 0);
 
-    tweenToColor(34, 224, 238, 0, 0); // CYAN
-    setupMqtt();
-    // >>> Fix: prevent false offline after 30s
-    printerVariables.disconnectMQTTms = millis();
-    // Start the Home Assistant MQTT integration (no-op if disabled / unconfigured)
-    setupHa();
-    startHaMqttTask(); // service HA MQTT in its own task so it is never blocked by the main loop
+    // SSDP responder — passive, responds to UPnP queries
+    if (printerConfig.diagEnableSsdp) {
+        start_ssdp();
+    } else {
+        Serial.println(F("[DIAG] SSDP DISABLED"));
+    }
+
+    // Printer MQTT — gated by diagEnableMqtt runtime switch
+    if (printerConfig.diagEnableMqtt) {
+        tweenToColor(34, 224, 238, 0, 0); // CYAN
+        setupMqtt();
+        printerVariables.disconnectMQTTms = millis();
+    } else {
+        Serial.println(F("[DIAG] Printer MQTT DISABLED"));
+    }
+
+    // Home Assistant MQTT — gated by diagEnableHa runtime switch
+    if (printerConfig.diagEnableHa) {
+        setupHa();
+        startHaMqttTask();
+    } else {
+        Serial.println(F("[DIAG] HA MQTT DISABLED"));
+    }
     Serial.println();
     Serial.print(F("** BLLED Controller started "));
     Serial.print(F("using firmware version: "));
@@ -155,7 +250,8 @@ void loop()
         {
             dnsServer.processNextRequest();
         }
-        if(WiFi.status() == WL_CONNECTED && WiFi.getMode() != WIFI_AP)
+        if(WiFi.status() == WL_CONNECTED && WiFi.getMode() != WIFI_AP
+           && printerConfig.diagEnableBblScan)
         {
             bblSearchPrinters();
         }

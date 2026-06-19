@@ -19,6 +19,7 @@ struct BBLPrinter
 static WiFiUDP bblUdp;
 static bool bblUdpInitialized = false;
 static unsigned long bblLastDiscovery = 0;
+static unsigned long bblCycleCount = 0;
 
 static BBLPrinter bblLastKnownPrinters[BBL_MAX_PRINTERS];
 static int bblKnownPrinterCount = 0;
@@ -61,6 +62,9 @@ void bblSearchPrinters()
   if (now - bblLastDiscovery < BBL_DISCOVERY_INTERVAL)
     return;
   bblLastDiscovery = now;
+
+  bblCycleCount++;
+  Serial.printf("[BBLScan] cycle #%lu start t=%lus\n", bblCycleCount, now / 1000);
 
   if (!bblUdpInitialized)
   {
@@ -174,6 +178,10 @@ void bblSearchPrinters()
   {
     bblPrintKnownPrinters();
   }
+
+  unsigned long duration = millis() - now;
+  Serial.printf("[BBLScan] cycle #%lu end duration=%lums (every %us)\n",
+                bblCycleCount, duration, BBL_DISCOVERY_INTERVAL / 1000);
 }
 
 #endif

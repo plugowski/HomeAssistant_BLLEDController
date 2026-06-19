@@ -38,7 +38,16 @@ void serialLoop(){
             delay(1000);
             ESP.restart();
        }
-      
+       // WiFi radio recovery: send {"wifiRadio":true} to re-enable when radio is off
+       if (doc["wifiRadio"].is<bool>()) {
+            printerConfig.wifiRadioEnabled = doc["wifiRadio"].as<bool>();
+            saveFileSystem();
+            Serial.print(F("[Serial] wifiRadioEnabled set to "));
+            Serial.println(printerConfig.wifiRadioEnabled ? "true" : "false");
+            Serial.println(F("Restarting..."));
+            delay(500);
+            ESP.restart();
+       }
     };
     delay(10);
 }

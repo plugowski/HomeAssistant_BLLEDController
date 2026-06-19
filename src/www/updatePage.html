@@ -22,13 +22,13 @@
                 <label for="file1">Select .bin.ota File</label>
                 <input accept='.bin.ota' id="file1" name='firmware' type="file">
                 <progress id="progressBar" max="100" value="0"></progress>
+                <div id="status"></div>
                 <button id="button-send" type="submit" disabled>Update Firmware</button>
 
                 <div style="margin-top: 10px;">
                     <button type="button" style="background-color: #6c757d;" onclick="location.href='/'">Back</button>
                 </div>
             </form>
-            <p id="status">Status: Ready</p>
         </div>
     </div>
 
@@ -141,7 +141,7 @@
         _('file1').addEventListener('change', function (e) {
             _('button-send').disabled = !_("file1").files.length;
             _('progressBar').value = 0;
-            _('status').textContent = "Firmware Upload!";
+            _('status').textContent = _("file1").files.length ? "File selected, ready to upload." : "";
         });
     </script>
     <div id="toast"><span id="toast-icon">ℹ️</span><span id="toast-msg">Placeholder</span></div>

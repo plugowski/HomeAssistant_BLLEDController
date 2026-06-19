@@ -133,13 +133,6 @@
                         </div>
                         <div id="haMqttSection">
                             <div class="detailSplitter">Home Assistant MQTT</div>
-                            <div class="toggle-switch">
-                                <label class="switch">
-                                    <input type="checkbox" id="haEnabled" name="haEnabled">
-                                    <span class="slider"></span>
-                                </label>
-                                <span>Enable Home Assistant integration</span>
-                            </div>
                             <label for="haMqttHost">Broker Host</label>
                             <input type="text" id="haMqttHost" name="haMqttHost" placeholder="192.168.1.10">
                             <label for="haMqttPort">Port</label>
@@ -202,7 +195,7 @@
                                 <span class="slider"></span>
                             </label>
                             <span>Replicate State</span>
-                            <div id="runningcolorchoice" class="input-inline-group" style="margin-left: auto;">
+                            <div id="runningcolorchoice" class="input-inline-group">
                                 <input type="color" id="runningRGB" name="runningRGB" value="#000000">
                                 <label for="runningWW">WW</label>
                                 <input type="number" id="runningWW" name="runningWW" value="255" min="0" max="255"
@@ -220,7 +213,7 @@
                                 <span class="slider"></span>
                             </label>
                             <span>Color Test (Always On)</span>
-                            <div id="testcolorchoice" class="input-inline-group" style="margin-left: auto;">
+                            <div id="testcolorchoice" class="input-inline-group">
                                 <input type="color" id="testRGB" name="testRGB" value="#3F3CFB">
                                 <label for="testWW">WW</label>
                                 <input type="number" id="testWW" name="testWW" value="255" min="0" max="255" step="1">
@@ -248,7 +241,7 @@
                             </label>
                             <span>Finish Indication</span>
 
-                            <div class="input-inline-group" id="finishcolorchoice" style="margin-left: auto;">
+                            <div class="input-inline-group" id="finishcolorchoice">
                                 <input type="color" id="finishColor" name="finishColor" value="#00FF00">
                                 <label for="finishWW">WW</label>
                                 <input type="number" id="finishWW" name="finishWW" value="255" min="0" max="255"
@@ -276,7 +269,7 @@
                                         <span class="slider"></span>
                                     </label>
                                     <span>Exit Finish after</span>
-                                    <div class="input-inline-group" style="margin-left: auto;">
+                                    <div class="input-inline-group">
                                         <label for="finishTimerMins">Min.</label>
                                         <input type="text" id="finishTimerMins" name="finishTimerMins" value='1'
                                             maxlength='3' size='3'>
@@ -292,7 +285,7 @@
                                 <span class="slider"></span>
                             </label>
                             <span>Inactivity Timeout (Minutes)</span>
-                            <div class="input-inline-group" id="inactivityMinsDiv" style="margin-left: auto;">
+                            <div class="input-inline-group" id="inactivityMinsDiv">
                                 <label for="inactivityMins">Min.</label>
                                 <input type="text" id="inactivityMins" name="inactivityMins" value='1' maxlength='3'
                                     size='3'>
@@ -538,8 +531,8 @@
                     </div>
                 </details>
                 <!-- Debug Page -->
-                <details class="collapse">
-                    <summary>Debug Options</summary>
+                <details class="collapse" id="debugDiagDetails">
+                    <summary>Debug &amp; Diagnostics</summary>
                     <div>
                         </br>
                         <!-- Debugging -->
@@ -566,16 +559,84 @@
                             </label>
                             <span>MQTT Logging</span>
                         </div>
+                        <!-- Diagnostics -->
+                        <div class="detailSplitter" style="margin-top:8px;">WiFi &amp; Subsystem Diagnostics</div>
+                        <div class="input-inline-group" style="margin-top:8px;">
+                            <label for="wifiTxPower">WiFi TX Power</label>
+                            <select id="wifiTxPower" style="margin-left:auto;">
+                                <option value="2">2 dBm</option>
+                                <option value="5">5 dBm</option>
+                                <option value="8">8.5 dBm</option>
+                                <option value="11">11 dBm</option>
+                                <option value="13">13 dBm</option>
+                                <option value="15">15 dBm</option>
+                                <option value="17">17 dBm</option>
+                                <option value="19">19.5 dBm</option>
+                            </select>
+                        </div>
+                        <div class="toggle-switch">
+                            <label class="switch">
+                                <input type="checkbox" id="wifiSleepEnabled">
+                                <span class="slider"></span>
+                            </label>
+                            <span>Enable WiFi Modem Sleep</span>
+                        </div>
+                        <small>Lower TX power reduces electrical noise near the access point. Applies immediately.</small>
+                        <div class="detailSplitter" style="margin-top:12px;">Subsystem Isolation</div>
+                        <small>Disable subsystems to isolate noise. All changes take effect after reboot.</small>
+                        <div class="toggle-switch" style="margin-top:8px;">
+                            <label class="switch">
+                                <input type="checkbox" id="wifiRadioEnabled">
+                                <span class="slider"></span>
+                            </label>
+                            <span>Enable WiFi Radio</span>
+                        </div>
+                        <small style="color:#c0392b;">&#9888; Disabling WiFi turns off the radio completely. Recovery requires USB serial.</small>
+                        <div class="toggle-switch" style="margin-top:8px;">
+                            <label class="switch">
+                                <input type="checkbox" id="diagEnableMqtt">
+                                <span class="slider"></span>
+                            </label>
+                            <span>Enable Printer MQTT</span>
+                        </div>
+                        <div class="toggle-switch">
+                            <label class="switch">
+                                <input type="checkbox" id="diagEnableHa">
+                                <span class="slider"></span>
+                            </label>
+                            <span>Enable Home Assistant MQTT</span>
+                        </div>
+                        <div class="toggle-switch" style="align-items:flex-start">
+                            <label class="switch" style="flex-shrink:0;margin-top:2px;">
+                                <input type="checkbox" id="diagEnableSsdp">
+                                <span class="slider"></span>
+                            </label>
+                            <span>Enable SSDP Responder<br><small style="color:#888;font-weight:normal">(passive, responds to UPnP queries)</small></span>
+                        </div>
+                        <div class="toggle-switch" style="align-items:flex-start">
+                            <label class="switch" style="flex-shrink:0;margin-top:2px;">
+                                <input type="checkbox" id="diagEnableBblScan">
+                                <span class="slider"></span>
+                            </label>
+                            <span>Enable BBL Printer Discovery Scanner<br><small style="color:#888;font-weight:normal">(active, sends multicast every 10 s)</small></span>
+                        </div>
+                        <div class="detailSplitter" style="margin-top:12px;">Runtime Status</div>
+                        <div style="position:relative;">
+                            <button type="button" onclick="refreshDiagPanel()" title="Refresh" style="width:20px;position:absolute;top:6px;right:8px;background:none;border:none;padding:0;margin:0;color:#bbb;font-size:24px;line-height:1;cursor:pointer;z-index:1;" onmouseover="this.style.color='#555'" onmouseout="this.style.color='#bbb'">↻</button>
+                            <div id="diagPanel" style="font-family:monospace;font-size:0.82em;background:#f7f7f7;color:#333;border:1px solid #ddd;border-radius:6px;padding:10px 36px 10px 14px;line-height:1.9;">
+                                <span style="color:#888;">Click ↻ to load...</span>
+                            </div>
+                        </div>
                     </div>
                 </details>
                 <!-- navigation Page -->
                 <details class="collapse">
-                    <summary>Navigation</summary>
+                    <summary>Device Tools</summary>
                     <div>
                         </br>
                         <button type="button" onclick="location.href='/wifi'">WiFi & Printer Setup</button>
                         <button type="button" onclick="location.href='/fwupdate'">Firmware Update</button>
-                        <button type="button" onclick="location.href='/backuprestore'">backup & Restore</button>
+                        <button type="button" onclick="location.href='/backuprestore'">Backup & Restore</button>
                         <button type="button" onclick="window.open('/webserial','_blank')">Web Serial Log</button>
                     </div>
                 </details>
@@ -924,7 +985,6 @@
                             document.getElementById('ledControlMode').value = (configData.ledControlMode !== undefined ? configData.ledControlMode : 2);
                             toggleHaSection();
                             document.getElementById('haMasterEnable').checked = (configData.haMasterEnable !== undefined ? configData.haMasterEnable : true);
-                            document.getElementById('haEnabled').checked = configData.haEnabled || false;
                             document.getElementById('haMqttHost').value = configData.haMqttHost || '';
                             document.getElementById('haMqttPort').value = getSafeNumber(configData.haMqttPort, 1883);
                             document.getElementById('haMqttUser').value = configData.haMqttUser || '';
@@ -966,15 +1026,27 @@
         }
 
         // Update the Home Assistant connection indicator in the header.
-        function setHaStatus(connected) {
+        function setHaStatus(connected, state) {
             var icon = document.getElementById('ha_icon');
             var title = document.getElementById('haTitle');
             var on = document.getElementById('ha_online');
             var off = document.getElementById('ha_offline');
-            if (icon) icon.setAttribute('fill', '#41BDF5'); // Home Assistant brand blue (always)
+            if (icon) icon.setAttribute('fill', '#41BDF5');
             if (on) on.style.display = connected ? 'inline' : 'none';
-            if (off) off.style.display = connected ? 'none' : 'inline';
-            if (title) title.textContent = 'Home Assistant: ' + (connected ? 'connected' : 'disconnected');
+            if (off) {
+                off.style.display = connected ? 'none' : 'inline';
+                // Orange = bad credentials (state 4/5), red = unreachable/other
+                var credsBad = !connected && (state === 4 || state === 5);
+                var offPath = off.querySelector('path');
+                if (offPath) offPath.setAttribute('fill', credsBad ? '#e67e22' : '#c00');
+            }
+            if (title) {
+                var reason = connected ? 'connected' :
+                    (state === 4 || state === 5) ? 'bad credentials, check username/password' :
+                    state === 3 ? 'broker unavailable' :
+                    (state === -2 || state === -4) ? 'broker unreachable' : 'disconnected';
+                title.textContent = 'Home Assistant: ' + reason;
+            }
         }
 
         // Hide the Home Assistant MQTT settings when in Printer-only mode (value 0).
@@ -991,6 +1063,7 @@
             });
             updateIdle();
             updateConfig();
+            loadNetworkingConfig();
             showhideOptions();
             showcustomColors();
             setFinishColor();
@@ -1042,7 +1115,12 @@
             xhr.onreadystatechange = function () {
                 if (xhr.readyState === 4) {
                     if (xhr.status === 200) {
-                        alertToast("Success", "Settings saved successfully!");
+                        if (xhr.responseText.includes('restarting')) {
+                            alertToast("info", "Settings saved. Device is restarting…");
+                        } else {
+                            alertToast("success", "Settings saved successfully!");
+                            saveDiagnostics(true);
+                        }
                         updateConfig();
                     } else if (xhr.status >= 400 && xhr.status < 500) {
                         alertToast("Error", "Client Error (" + xhr.status + "): " + (xhr.responseText || "Request failed."));
@@ -1081,6 +1159,83 @@
 
             return false;
         }
+    </script>
+
+    <script>
+        // ── Debug & Diagnostics ───────────────────────────────────────
+        function refreshDiagPanel() {
+            var panel = document.getElementById('diagPanel');
+            if (!panel) return;
+            fetch('/diag')
+                .then(function(r) { return r.ok ? r.json() : Promise.reject(r.status); })
+                .then(function(d) {
+                    function yn(v) { return v ? '<span style="color:#27ae60"><b>ON</b></span>' : '<span style="color:#e74c3c"><b>OFF</b></span>'; }
+                    function txLabel(v) { return (v === 8 || v === 19) ? v + '.5' : v; }
+                    panel.innerHTML =
+                        '<b>WiFi</b><br>' +
+                        '&nbsp;Radio: ' + yn(d.wifiRadioEnabled) +
+                        ' &nbsp; RSSI: ' + d.rssi + ' dBm' +
+                        ' &nbsp; Sleep: ' + yn(d.wifiSleep) +
+                        ' &nbsp; TX: ' + txLabel(d.txPower) + ' dBm<br><br>' +
+                        '<b>Subsystems</b><br>' +
+                        '&nbsp;Printer MQTT: ' + yn(d.mqttEnabled) +
+                        ' &nbsp; HA MQTT: ' + yn(d.haEnabled) + '<br>' +
+                        '&nbsp;SSDP: ' + yn(d.ssdpEnabled) +
+                        ' &nbsp; BBL Scan: ' + yn(d.bblScanEnabled) + '<br><br>' +
+                        '<b>MQTT Traffic (last min)</b><br>' +
+                        '&nbsp;Messages: ' + d.mqttMsgsPerMin + '/min' +
+                        ' &nbsp; Bytes: ' + d.mqttBytesPerMin + '/min';
+                    // Recalculate collapse height in case panel content grew
+                    var det = document.getElementById('debugDiagDetails');
+                    if (det && det.hasAttribute('open')) {
+                        var content = det.querySelector(':scope > div');
+                        if (content) content.style.maxHeight = content.scrollHeight + 'px';
+                    }
+                })
+                .catch(function(e) { panel.innerHTML = '<span style="color:#e74c3c">Error fetching /diag (' + e + ')</span>'; });
+        }
+
+        function loadNetworkingConfig() {
+            fetch('/getConfig')
+                .then(function(r) { return r.ok ? r.json() : Promise.reject(r.status); })
+                .then(function(d) {
+                    function safeVal(v, fb) { return v !== undefined ? v : fb; }
+                    document.getElementById('wifiTxPower').value        = safeVal(d.wifiTxPower, 11);
+                    document.getElementById('wifiSleepEnabled').checked  = safeVal(d.wifiSleepEnabled, true);
+                    document.getElementById('wifiRadioEnabled').checked  = safeVal(d.wifiRadioEnabled, true);
+                    document.getElementById('diagEnableMqtt').checked    = safeVal(d.diagEnableMqtt, true);
+                    document.getElementById('diagEnableHa').checked      = safeVal(d.diagEnableHa, true);
+                    document.getElementById('diagEnableSsdp').checked    = safeVal(d.diagEnableSsdp, true);
+                    document.getElementById('diagEnableBblScan').checked = safeVal(d.diagEnableBblScan, true);
+                })
+                .catch(function(e) { console.warn('Failed to load networking config:', e); });
+        }
+
+        function saveDiagnostics(silent) {
+            var params = ['wifiTxPower=' + encodeURIComponent(document.getElementById('wifiTxPower').value)];
+            ['wifiSleepEnabled','wifiRadioEnabled','diagEnableMqtt','diagEnableHa','diagEnableSsdp','diagEnableBblScan'].forEach(function(id) {
+                if (document.getElementById(id).checked) params.push(id + '=on');
+            });
+            fetch('/submitNetworking', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: params.join('&')
+            })
+            .then(function(r) { return r.ok ? r.text() : Promise.reject(r.status); })
+            .then(function(t) {
+                if (!silent) {
+                    if (t.includes('restarting')) alertToast('info', 'Saved. Device is restarting…');
+                    else alertToast('success', 'All settings saved.');
+                }
+            })
+            .catch(function(e) { if (!silent) alertToast('error', 'Diagnostics save failed: ' + e); });
+        }
+
+        // Auto-refresh runtime status only while the section is open
+        setInterval(function() {
+            var d = document.getElementById('debugDiagDetails');
+            if (d && d.hasAttribute('open')) refreshDiagPanel();
+        }, 10000);
     </script>
 
     <script>
@@ -1124,7 +1279,7 @@
                     if (mEl) mEl.checked = data.masterEnable;
                 }
                 if (typeof data.haConnected !== 'undefined') {
-                    setHaStatus(data.haConnected);
+                    setHaStatus(data.haConnected, data.haConnectState);
                 }
             } catch (error) {
                 console.error('json error:', event.data);

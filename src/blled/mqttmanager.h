@@ -26,6 +26,14 @@ AutoGrowBufferStream stream;
 unsigned long mqttattempt = (millis() - 3000);
 unsigned long lastMQTTupdate = millis();
 
+// Diagnostic counters — read by wifiMonitorTask in main.cpp
+int g_mqttConnectAttempts = 0;
+volatile unsigned long g_mqttRxMsgs = 0;
+volatile unsigned long g_mqttRxBytes = 0;
+// Last-completed-minute snapshot — written by wifiMonitorTask, read by /diag handler
+volatile unsigned long g_mqttRxMsgsPerMin = 0;
+volatile unsigned long g_mqttRxBytesPerMin = 0;
+
 TaskHandle_t mqttTaskHandle = NULL;
 bool mqttTaskRunning = false;
 volatile bool mqttConnectInProgress = false;
@@ -115,12 +123,25 @@ void connectMqtt()
 
     if (!mqttClient.connected() && (millis() - mqttattempt) >= 3000)
     {
-        // tweenToColor(10, 10, 10, 10, 10);
-        Serial.println(F("Connecting to mqtt..."));
+        // Arm throttle gate BEFORE the blocking connect so all failure paths
+        // (including fast state-5 rejections) wait the full 3 s before retrying.
+        mqttattempt = millis();
+        g_mqttConnectAttempts++;
 
-        if (mqttClient.connect(clientId.c_str(), "bblp", printerConfig.accessCode))
+        Serial.printf("[MQTT] connect attempt #%d host=%s port=8883 accessCode_len=%d\n",
+                      g_mqttConnectAttempts, printerConfig.printerIP,
+                      (int)strlen(printerConfig.accessCode));
+
+        unsigned long t0 = millis();
+        bool ok = mqttClient.connect(clientId.c_str(), "bblp", printerConfig.accessCode);
+        unsigned long dur = millis() - t0;
+
+        Serial.printf("[MQTT] connect result=%d duration=%lums state=%d\n",
+                      (int)ok, dur, mqttClient.state());
+
+        if (ok)
         {
-            Serial.print(F("[MQTT] connected, subscribing to MQTT Topic:  "));
+            Serial.print(F("[MQTT] connected, subscribing to: "));
             Serial.println(report_topic);
             mqttClient.subscribe(report_topic.c_str());
             printerVariables.online = true;
@@ -128,15 +149,15 @@ void connectMqtt()
         }
         else
         {
-            Serial.println(F("Failed to connect with error code: "));
-            Serial.print(mqttClient.state());
-            Serial.print(F("  "));
             ParseMQTTState(mqttClient.state());
 
             if (mqttClient.state() == 5)
             {
+                Serial.printf("[MQTT] State-5 UNAUTHORIZED — accessCode len=%d — next retry in 3s\n",
+                             (int)strlen(printerConfig.accessCode));
                 tweenToColor(127, 0, 0, 0, 0);
-                mqttattempt = millis() - 3000;
+                // mqttattempt was already set above; 3-second gate is honoured.
+                // (Previous code used millis()-3000 here, which bypassed the gate.)
             }
         }
     }
@@ -643,6 +664,8 @@ else // Door closed
 
 void mqttCallback(char *topic, byte *payload, unsigned int length)
 {
+    g_mqttRxMsgs++;
+    g_mqttRxBytes += length;
     ParseCallback(topic, (byte *)stream.get_buffer(), stream.current_length());
     stream.flush();
 }

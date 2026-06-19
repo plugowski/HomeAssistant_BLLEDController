@@ -114,12 +114,16 @@ input[type="color"] {
   gap: 0px;
 }
 
-.input-inline-group input[type="number"] {
+.input-inline-group input[type="number"],
+.input-inline-group input[type="text"] {
   text-align: center;
   height: 20px;
   width: 40px;
   border: 1px solid #ccc;
   border-radius: 3px;
+  padding: 2px 4px;
+  margin-bottom: 0;
+  box-sizing: border-box;
 }
 
 .input-inline-group label {
@@ -158,6 +162,22 @@ button:disabled {
   align-items: center;
   gap: 10px;
   margin-bottom: 10px;
+}
+
+.toggle-switch > span {
+  font-weight: 600;
+}
+
+.toggle-switch > label.switch {
+  order: 9;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* Span fills remaining space so input-group + toggle sit flush at the right edge,
+   and when the input-group is hidden the toggle stays right-aligned too */
+.toggle-switch:has(label.switch) > span {
+  flex-grow: 1;
 }
 
 .switch {
@@ -243,10 +263,19 @@ progress {
 }
 
 #status {
-  font-weight: bold;
+  font-weight: 600;
   text-align: center;
-  margin-top: 10px;
-  color: #4CAF50;
+  margin: 0 14px 12px;
+  padding: 7px 16px;
+  border-radius: 20px;
+  background: #f0f0f0;
+  color: #444;
+  border: 1px solid #ddd;
+  font-size: 0.87em;
+}
+
+#status:empty {
+  display: none;
 }
 
 .collapse {

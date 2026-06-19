@@ -14,6 +14,10 @@
 void haPublishDiscovery();
 void haPublishAvailability(bool online);
 
+// Forward declarations for mqttmanager.h globals (included after web-server.h in main.cpp)
+extern volatile unsigned long g_mqttRxMsgsPerMin;
+extern volatile unsigned long g_mqttRxBytesPerMin;
+
 AsyncWebServer webServer(80);
 AsyncWebSocket ws("/ws");
 
@@ -189,6 +193,15 @@ void handleGetConfig(AsyncWebServerRequest *request)
     doc["offlineDimBrightness"] = printerConfig.offlineDimBrightness;
     doc["haMasterEnable"] = haVariables.masterEnable;
     doc["haConnected"] = haVariables.connected;
+    // WiFi RF tuning
+    doc["wifiTxPower"] = printerConfig.wifiTxPower;
+    doc["wifiSleepEnabled"] = printerConfig.wifiSleepEnabled;
+    // Subsystem isolation
+    doc["wifiRadioEnabled"] = printerConfig.wifiRadioEnabled;
+    doc["diagEnableMqtt"] = printerConfig.diagEnableMqtt;
+    doc["diagEnableHa"] = printerConfig.diagEnableHa;
+    doc["diagEnableSsdp"] = printerConfig.diagEnableSsdp;
+    doc["diagEnableBblScan"] = printerConfig.diagEnableBblScan;
 
     String jsonString;
     serializeJson(doc, jsonString);
@@ -226,6 +239,67 @@ void handleStyleCss(AsyncWebServerRequest *request)
     AsyncWebServerResponse *response = request->beginResponse(200, style_css_gz_mime, style_css_gz, style_css_gz_len);
     response->addHeader("Content-Encoding", "gzip");
     request->send(response);
+}
+
+void handleSubmitNetworking(AsyncWebServerRequest *request)
+{
+    if (!isAuthorized(request))
+    {
+        return request->requestAuthentication();
+    }
+
+    auto getSafeParamInt = [](AsyncWebServerRequest *req, const char *name, int fallback = 0) -> int
+    {
+        return req->hasParam(name, true) ? req->getParam(name, true)->value().toInt() : fallback;
+    };
+
+    // WiFi RF tuning — apply immediately (no reboot needed)
+    printerConfig.wifiTxPower = getSafeParamInt(request, "wifiTxPower", 11);
+    printerConfig.wifiSleepEnabled = request->hasParam("wifiSleepEnabled", true);
+    switch (printerConfig.wifiTxPower) {
+        case 2:  WiFi.setTxPower(WIFI_POWER_2dBm); break;
+        case 5:  WiFi.setTxPower(WIFI_POWER_5dBm); break;
+        case 8:  WiFi.setTxPower(WIFI_POWER_8_5dBm); break;
+        case 11: WiFi.setTxPower(WIFI_POWER_11dBm); break;
+        case 13: WiFi.setTxPower(WIFI_POWER_13dBm); break;
+        case 15: WiFi.setTxPower(WIFI_POWER_15dBm); break;
+        case 17: WiFi.setTxPower(WIFI_POWER_17dBm); break;
+        default: WiFi.setTxPower(WIFI_POWER_19_5dBm); break;
+    }
+    WiFi.setSleep(printerConfig.wifiSleepEnabled);
+    Serial.printf("[WiFi] TxPower=%d%sdBm Sleep=%s (applied from networking page)\n",
+                  printerConfig.wifiTxPower,
+                  (printerConfig.wifiTxPower == 8 || printerConfig.wifiTxPower == 19) ? ".5" : "",
+                  printerConfig.wifiSleepEnabled ? "ON" : "OFF");
+
+    // Subsystem isolation — take effect after reboot
+    bool oldWifiRadio  = printerConfig.wifiRadioEnabled;
+    bool oldDiagMqtt   = printerConfig.diagEnableMqtt;
+    bool oldDiagHa     = printerConfig.diagEnableHa;
+    bool oldDiagSsdp   = printerConfig.diagEnableSsdp;
+    bool oldDiagBbl    = printerConfig.diagEnableBblScan;
+    printerConfig.wifiRadioEnabled  = request->hasParam("wifiRadioEnabled", true);
+    printerConfig.diagEnableMqtt    = request->hasParam("diagEnableMqtt", true);
+    printerConfig.diagEnableHa      = request->hasParam("diagEnableHa", true);
+    printerConfig.diagEnableSsdp    = request->hasParam("diagEnableSsdp", true);
+    printerConfig.diagEnableBblScan = request->hasParam("diagEnableBblScan", true);
+    bool diagChanged = (oldWifiRadio != printerConfig.wifiRadioEnabled)
+                    || (oldDiagMqtt  != printerConfig.diagEnableMqtt)
+                    || (oldDiagHa    != printerConfig.diagEnableHa)
+                    || (oldDiagSsdp  != printerConfig.diagEnableSsdp)
+                    || (oldDiagBbl   != printerConfig.diagEnableBblScan);
+
+    saveFileSystem();
+
+    if (diagChanged) {
+        request->send(200, "text/plain", "OK - restarting to apply subsystem isolation settings");
+        LogSerial.println(F("[Web] Subsystem isolation settings changed — restarting"));
+        shouldRestart = true;
+        restartRequestTime = millis();
+        return;
+    }
+
+    request->send(200, "text/plain", "OK");
 }
 
 void handleSubmitConfig(AsyncWebServerRequest *request)
@@ -328,7 +402,8 @@ void handleSubmitConfig(AsyncWebServerRequest *request)
     String oldHaPass = printerConfig.haMqttPass;
 
     printerConfig.ledControlMode = getSafeParamInt(request, "ledControlMode", printerConfig.ledControlMode);
-    printerConfig.haEnabled = request->hasParam("haEnabled", true);
+    // haEnabled is derived from mode — any mode that uses HA enables the connection
+    printerConfig.haEnabled = (printerConfig.ledControlMode != LED_MODE_PRINTER);
     strlcpy(printerConfig.haMqttHost, getSafeParamValue(request, "haMqttHost").c_str(), sizeof(printerConfig.haMqttHost));
     printerConfig.haMqttPort = getSafeParamInt(request, "haMqttPort", 1883);
     strlcpy(printerConfig.haMqttUser, getSafeParamValue(request, "haMqttUser").c_str(), sizeof(printerConfig.haMqttUser));
@@ -337,6 +412,7 @@ void handleSubmitConfig(AsyncWebServerRequest *request)
     printerConfig.offlineDimAfterSec = getSafeParamInt(request, "offlineDimAfterSec", 60);
     printerConfig.offlineDimBrightness = getSafeParamInt(request, "offlineDimBrightness", 5);
     haVariables.masterEnable = request->hasParam("haMasterEnable", true);
+
     if (printerConfig.ledControlMode == LED_MODE_PRINTER)
         haVariables.overrideActive = false;
 
@@ -365,7 +441,7 @@ void handleSubmitConfig(AsyncWebServerRequest *request)
     if (haConnChanged)
     {
         request->send(200, "text/plain", "OK - restarting to apply Home Assistant settings");
-        LogSerial.println(F("[HA] Connection settings changed - restarting"));
+        LogSerial.println(F("[Web] Home Assistant settings changed — restarting"));
         shouldRestart = true;
         restartRequestTime = millis();
         return;
@@ -539,7 +615,8 @@ void websocketLoop()
         doc["clients"] = ws.count();
         doc["stg_cur"] = printerVariables.stage;
         doc["masterEnable"] = haVariables.masterEnable; // live state so the web toggle reflects HA changes
-        doc["haConnected"] = haVariables.connected;     // HA broker connection status for the header indicator
+        doc["haConnected"] = haVariables.connected;
+        doc["haConnectState"] = haVariables.haLastConnectState;
         sendJsonToAll(doc);
     }
 }
@@ -637,6 +714,41 @@ void handleHaRepublishDiscovery(AsyncWebServerRequest *request)
     request->send(200, "text/plain", "Discovery republished - check Home Assistant");
 }
 
+void handleWifiDiag(AsyncWebServerRequest *request)
+{
+    if (!isAuthorized(request))
+        return request->requestAuthentication();
+
+    JsonDocument doc;
+    doc["rssi"] = WiFi.RSSI();
+    doc["txPower"] = printerConfig.wifiTxPower;
+    doc["sleep"] = WiFi.getSleep();
+    String json;
+    serializeJson(doc, json);
+    request->send(200, "application/json", json);
+}
+
+void handleDiag(AsyncWebServerRequest *request)
+{
+    if (!isAuthorized(request))
+        return request->requestAuthentication();
+
+    JsonDocument doc;
+    doc["wifiRadioEnabled"]  = printerConfig.wifiRadioEnabled;
+    doc["mqttEnabled"]       = printerConfig.diagEnableMqtt;
+    doc["haEnabled"]         = printerConfig.diagEnableHa;
+    doc["ssdpEnabled"]       = printerConfig.diagEnableSsdp;
+    doc["bblScanEnabled"]    = printerConfig.diagEnableBblScan;
+    doc["wifiSleep"]         = WiFi.getSleep();
+    doc["txPower"]           = printerConfig.wifiTxPower;
+    doc["rssi"]              = WiFi.RSSI();
+    doc["mqttMsgsPerMin"]    = g_mqttRxMsgsPerMin;
+    doc["mqttBytesPerMin"]   = g_mqttRxBytesPerMin;
+    String json;
+    serializeJson(doc, json);
+    request->send(200, "application/json", json);
+}
+
 void handleFactoryReset(AsyncWebServerRequest *request)
 {
     if (!isAuthorized(request))
@@ -729,6 +841,7 @@ void setupWebserver()
     webServer.on("/fwupdate", HTTP_GET, handleUpdatePage);
     webServer.on("/getConfig", HTTP_GET, handleGetConfig);
     webServer.on("/submitConfig", HTTP_POST, handleSubmitConfig);
+    webServer.on("/submitNetworking", HTTP_POST, handleSubmitNetworking);
     webServer.on("/setEnable", HTTP_GET, handleSetEnable);
     webServer.on("/blled.svg", HTTP_GET, handleGetIcon);
     webServer.on("/favicon.ico", HTTP_GET, handleGetfavicon);
@@ -744,6 +857,8 @@ void setupWebserver()
     webServer.on("/printerList", HTTP_GET, handlePrinterList);
     webServer.on("/factoryreset", HTTP_GET, handleFactoryReset);
     webServer.on("/haDiscovery", HTTP_GET, handleHaRepublishDiscovery);
+    webServer.on("/wifi_diag", HTTP_GET, handleWifiDiag);
+    webServer.on("/diag", HTTP_GET, handleDiag);
     webServer.on("/configrestore", HTTP_POST, [](AsyncWebServerRequest *request)
                  {
         if (!isAuthorized(request)) {

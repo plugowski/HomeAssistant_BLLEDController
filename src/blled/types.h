@@ -150,6 +150,19 @@ extern "C"
         int  offlineDimAfterSec = 60;    // seconds offline before dimming
         int  offlineDimBrightness = 5;   // dim brightness in % (0 = fully off)
 
+        // WiFi RF tuning — configurable to reduce electrical noise from power rail excitation
+        // Stored value for 8.5 dBm is 8; for 19.5 dBm is 19 (falls to default in switch).
+        int  wifiTxPower = 11;           // dBm: 2, 5, 8(=8.5), 11, 13, 15, 17, 19(=19.5)
+        bool wifiSleepEnabled = true;    // WiFi modem sleep (rhythmic vs. continuous noise)
+
+        // Subsystem isolation — disable individually to locate noise source.
+        // Changes take effect after reboot. All default true → safe for existing configs.
+        bool wifiRadioEnabled = true;        // master WiFi switch; false = WiFi.mode(WIFI_OFF)
+        bool diagEnableMqtt = true;          // printer MQTT (TLS, port 8883)
+        bool diagEnableHa = true;            // Home Assistant MQTT
+        bool diagEnableSsdp = true;          // SSDP responder (passive, listens for UPnP queries)
+        bool diagEnableBblScan = true;       // BBL active UDP multicast scanner (tx every 10 s)
+
     } PrinterConfig;
 
     PrinterConfig printerConfig;
@@ -180,6 +193,7 @@ extern "C"
 
         // Connection / publishing bookkeeping (volatile)
         bool connected = false;         // HA broker currently connected
+        int  haLastConnectState = -1;   // PubSubClient state after last failed connect (4=bad creds, 5=unauth)
         bool discoverySent = false;     // discovery configs published since last connect
         bool stateDirty = true;         // a state change needs to be published to HA
         unsigned long lastReconnectMs = 0;
@@ -194,6 +208,7 @@ extern "C"
         LED_MODE_HA = 1,
         LED_MODE_HYBRID = 2
     };
+
 
 #ifdef __cplusplus
 } /*extern "C"*/

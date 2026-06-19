@@ -45,6 +45,9 @@ static const unsigned long HA_RECONNECT_INTERVAL = 5000;
 static unsigned long haLastSaveRequestMs = 0;
 static bool haSavePending = false;
 
+// Diagnostic counter — read by wifiMonitorTask in main.cpp
+int g_haConnectAttempts = 0;
+
 // Defined in leds.h
 void updateleds();
 
@@ -350,31 +353,33 @@ bool haConnect()
     if (strlen(printerConfig.haMqttHost) == 0)
         return false;
 
-    LogSerial.print(F("[HA] Connecting to broker "));
-    LogSerial.print(printerConfig.haMqttHost);
-    LogSerial.print(F(":"));
-    LogSerial.println(printerConfig.haMqttPort);
+    g_haConnectAttempts++;
+    Serial.printf("[HA] connect attempt #%d host=%s port=%d\n",
+                  g_haConnectAttempts, printerConfig.haMqttHost, printerConfig.haMqttPort);
 
     String clientId = haNodeId + "-" + String(random(0xffff), HEX);
 
-    bool ok;
     const char *user = strlen(printerConfig.haMqttUser) > 0 ? printerConfig.haMqttUser : nullptr;
     const char *pass = strlen(printerConfig.haMqttPass) > 0 ? printerConfig.haMqttPass : nullptr;
 
-    // Connect with a Last-Will so HA marks the device offline if it drops.
-    ok = haMqtt.connect(clientId.c_str(), user, pass,
-                        haAvailTopic.c_str(), 0, true, "offline");
+    unsigned long t0 = millis();
+    bool ok = haMqtt.connect(clientId.c_str(), user, pass,
+                             haAvailTopic.c_str(), 0, true, "offline");
+    unsigned long dur = millis() - t0;
+
+    Serial.printf("[HA] connect result=%d duration=%lums state=%d\n",
+                  (int)ok, dur, haMqtt.state());
 
     if (!ok)
     {
-        LogSerial.print(F("[HA] Connect failed, state: "));
-        LogSerial.println(haMqtt.state());
         haVariables.connected = false;
+        haVariables.haLastConnectState = haMqtt.state();
         return false;
     }
 
     LogSerial.println(F("[HA] Connected"));
     haVariables.connected = true;
+    haVariables.haLastConnectState = 0;
 
     haMqtt.subscribe(haLightCmdTopic.c_str());
     haMqtt.subscribe(haModeCmdTopic.c_str());
@@ -419,7 +424,9 @@ void setupHa()
     haEnableStateTopic = base + "/enable/state";
 
     haMqtt.setServer(printerConfig.haMqttHost, printerConfig.haMqttPort);
-    haMqtt.setBufferSize(1024); // discovery payloads are larger than the 256 default
+    haMqtt.setBufferSize(1024);
+    haMqtt.setSocketTimeout(5); // cap blocking socket ops at 5 s
+    haWifiClient.setTimeout(5); // cap TCP connect at 5 s
     haMqtt.setCallback(haCallback);
 
     LogSerial.print(F("[HA] Configured, node id: "));
