@@ -265,6 +265,21 @@ void setLedsRaw(int targetRed, int targetGreen, int targetBlue, int targetWarm, 
     markHaReported();
 }
 
+// Returns true when a printer error is active that should override any HA colour
+// in Hybrid mode (so the error colour is always visible).
+static bool isPrinterErrorActive()
+{
+    if (!printerConfig.errordetection)
+        return false;
+    if (printerVariables.stage == 6  || printerVariables.overridestage == 6)  return true; // filament runout
+    if (printerVariables.stage == 17 || printerVariables.overridestage == 17) return true; // front cover
+    if (printerVariables.stage == 20 || printerVariables.overridestage == 20) return true; // nozzle temp
+    if (printerVariables.stage == 21 || printerVariables.overridestage == 21) return true; // bed temp
+    if (printerVariables.parsedHMSlevel == "Serious") return true;
+    if (printerVariables.parsedHMSlevel == "Fatal")   return true;
+    return false;
+}
+
 // Apply the Home Assistant light state to the strip. HA owns brightness here,
 // so we scale the stored RGB colour by the HA brightness (0-100%).
 void applyHaLight()
@@ -473,7 +488,10 @@ void updateleds()
     }
     // Hybrid mode: if HA has issued a command it overrides the printer until the
     // next significant printer event (print start) clears the override.
-    if (printerConfig.ledControlMode == LED_MODE_HYBRID && haVariables.overrideActive)
+    // Active printer errors always take priority so the error colour is shown
+    // even when HA has set a colour.
+    if (printerConfig.ledControlMode == LED_MODE_HYBRID && haVariables.overrideActive
+        && !isPrinterErrorActive())
     {
         applyHaLight();
         return;

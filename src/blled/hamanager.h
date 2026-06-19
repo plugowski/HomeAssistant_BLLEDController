@@ -348,7 +348,7 @@ void haCallback(char *topic, byte *payload, unsigned int length)
 // --- connection -------------------------------------------------------------
 bool haConnect()
 {
-    if (WiFi.status() != WL_CONNECTED || WiFi.getMode() != WIFI_MODE_STA)
+    if (WiFi.status() != WL_CONNECTED)
         return false;
     if (strlen(printerConfig.haMqttHost) == 0)
         return false;
@@ -356,6 +356,8 @@ bool haConnect()
     g_haConnectAttempts++;
     Serial.printf("[HA] connect attempt #%d host=%s port=%d\n",
                   g_haConnectAttempts, printerConfig.haMqttHost, printerConfig.haMqttPort);
+    LogSerial.printf("[HA] connect #%d -> %s:%d\n",
+                     g_haConnectAttempts, printerConfig.haMqttHost, printerConfig.haMqttPort);
 
     String clientId = haNodeId + "-" + String(random(0xffff), HEX);
 
@@ -374,6 +376,7 @@ bool haConnect()
     {
         haVariables.connected = false;
         haVariables.haLastConnectState = haMqtt.state();
+        LogSerial.printf("[HA] connect FAILED state=%d\n", haMqtt.state());
         return false;
     }
 
@@ -439,12 +442,17 @@ void haLoop()
 {
     if (!printerConfig.haEnabled || strlen(printerConfig.haMqttHost) == 0)
         return;
-    if (WiFi.status() != WL_CONNECTED || WiFi.getMode() != WIFI_MODE_STA)
+    if (WiFi.status() != WL_CONNECTED)
         return;
 
     if (!haMqtt.connected())
     {
-        haVariables.connected = false;
+        if (haVariables.connected)
+        {
+            // Log the moment the connection is lost so it appears in WebSerial.
+            LogSerial.printf("[HA] Disconnected (broker state=%d)\n", haMqtt.state());
+            haVariables.connected = false;
+        }
         if (millis() - haVariables.lastReconnectMs >= HA_RECONNECT_INTERVAL)
         {
             haVariables.lastReconnectMs = millis();
