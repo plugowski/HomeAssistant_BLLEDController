@@ -10,6 +10,10 @@
 #include "leds.h"
 #include "filesystem.h"
 
+// Forward declarations for hamanager.h functions (included after web-server.h in main.cpp)
+void haPublishDiscovery();
+void haPublishAvailability(bool online);
+
 AsyncWebServer webServer(80);
 AsyncWebSocket ws("/ws");
 
