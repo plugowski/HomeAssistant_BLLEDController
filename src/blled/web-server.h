@@ -613,6 +613,26 @@ void handlePrinterList(AsyncWebServerRequest *request)
     request->send(200, "application/json", json);
 }
 
+// Force-republish HA MQTT Discovery configs.  Useful when HA's MQTT
+// integration was set up after BLLED connected, or when retained messages
+// were lost.  Hit GET /haDiscovery from a browser to trigger.
+void handleHaRepublishDiscovery(AsyncWebServerRequest *request)
+{
+    if (!isAuthorized(request))
+        return request->requestAuthentication();
+
+    if (!haVariables.connected)
+    {
+        request->send(503, "text/plain", "HA broker not connected - check settings");
+        return;
+    }
+    haPublishDiscovery();
+    haPublishAvailability(true);
+    haVariables.stateDirty = true; // triggers haPublishState() from the HA task
+    LogSerial.println(F("[HA] Discovery republished via web request"));
+    request->send(200, "text/plain", "Discovery republished - check Home Assistant");
+}
+
 void handleFactoryReset(AsyncWebServerRequest *request)
 {
     if (!isAuthorized(request))
@@ -719,6 +739,7 @@ void setupWebserver()
     webServer.on("/webserial", HTTP_GET, handleWebSerialPage);
     webServer.on("/printerList", HTTP_GET, handlePrinterList);
     webServer.on("/factoryreset", HTTP_GET, handleFactoryReset);
+    webServer.on("/haDiscovery", HTTP_GET, handleHaRepublishDiscovery);
     webServer.on("/configrestore", HTTP_POST, [](AsyncWebServerRequest *request)
                  {
         if (!isAuthorized(request)) {

@@ -380,8 +380,10 @@ bool haConnect()
     haMqtt.subscribe(haModeCmdTopic.c_str());
     haMqtt.subscribe(haEnableCmdTopic.c_str());
 
-    haPublishAvailability(true);
+    // Publish discovery before availability so HA knows the entity config
+    // before it sees the "online" availability message.
     haPublishDiscovery();
+    haPublishAvailability(true);
     haPublishState();
     haVariables.discoverySent = true;
     return true;
@@ -468,7 +470,10 @@ void haTask(void *parameter)
     for (;;)
     {
         haLoop();
-        vTaskDelay(pdMS_TO_TICKS(10));
+        // 50 ms gives ≤50 ms command latency and is well within PubSubClient's
+        // 15-second keepalive window. Polling at 10 ms caused continuous WiFi
+        // radio bursts that induced audible noise in the LED driver circuit.
+        vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
 
