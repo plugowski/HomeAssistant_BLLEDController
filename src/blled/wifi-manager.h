@@ -136,13 +136,13 @@ bool connectToWifi(){
     }
 
 
-    #ifdef ARDUINO_ARCH_ESP32
-        WiFi.setTxPower(WIFI_POWER_19_5dBm); // https://github.com/G6EJD/ESP32-8266-Adjust-WiFi-RF-Power-Output/blob/main/README.md
-    #endif
-    
-    #ifdef ESP32
-        WiFi.setTxPower(WIFI_POWER_19_5dBm); // https://github.com/G6EJD/ESP32-8266-Adjust-WiFi-RF-Power-Output/blob/main/README.md
-    #endif
+    // Reduce TX power from the 19.5 dBm default to limit RF conducted noise
+    // on the shared 5 V rail.  11 dBm is still ample for typical indoor
+    // range while injecting ~18x less RF energy into the circuit.
+    // Modem sleep lets the radio power down between DTIM beacon windows,
+    // further reducing the duty cycle of high-current radio bursts.
+    WiFi.setTxPower(WIFI_POWER_11dBm);
+    WiFi.setSleep(true);
     Serial.print(F("IP_ADDRESS:"));    // !!! Line required in this format for WifiSetup.html page to show IP Address correct.
     Serial.print(WiFi.localIP());      // !!! Line required in this format for WifiSetup.html page to show IP Address correct.
     Serial.println(F("\n         "));  // !!! Line required in this format for WifiSetup.html page to show IP Address correct.
