@@ -6,6 +6,16 @@ import gzip
 import os
 import glob
 
+try:
+    Import("env")
+    _raw = env.GetProjectOption("custom_version")
+    # Strip inline comment (e.g. " #BLLC_[Major].[Minor].[Patch]")
+    FW_VERSION = _raw.split("#")[0].strip()
+except Exception:
+    FW_VERSION = "?.?.?"
+
+VERSION_PLACEHOLDER = "??.??.??"
+
 WWW_DIR = os.path.join("src", "www")
 OUTPUT_HEADER_NAME = "www.h"
 OUTPUT_HEADER_FILE = os.path.join(WWW_DIR, OUTPUT_HEADER_NAME)
@@ -30,10 +40,16 @@ def guess_mime_type(filename):
     return MIME_TYPES.get(ext, "application/octet-stream")
 
 def compress_and_generate_entry(input_file):
-    # Compress in-memory, no temp file
     with open(input_file, "rb") as infile:
         data = infile.read()
-        compressed_data = gzip.compress(data, compresslevel=9)
+
+    _, ext = os.path.splitext(input_file.lower())
+    if ext in (".html", ".js"):
+        data = data.replace(
+            VERSION_PLACEHOLDER.encode(), FW_VERSION.encode()
+        )
+
+    compressed_data = gzip.compress(data, compresslevel=9)
 
     # ------------ Generate a C array name based on the file name ------------ #
     # array_name = os.path.basename(input_file).replace(".", "_")
@@ -78,6 +94,6 @@ def compress_files():
 
         f.write("\n#endif // WWW_H\n")
 
-    print(f"\n✅ All files combined into: {OUTPUT_HEADER_FILE}")
+    print(f"\n✅ All files combined into: {OUTPUT_HEADER_FILE} (version: {FW_VERSION})")
 
 compress_files()
