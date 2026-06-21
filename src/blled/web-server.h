@@ -10,10 +10,6 @@
 #include "leds.h"
 #include "filesystem.h"
 
-// Forward declarations for hamanager.h functions (included after web-server.h in main.cpp)
-void haPublishDiscovery();
-void haPublishAvailability(bool online);
-
 // Forward declarations for mqttmanager.h globals (included after web-server.h in main.cpp)
 extern volatile unsigned long g_mqttRxMsgsPerMin;
 extern volatile unsigned long g_mqttRxBytesPerMin;
@@ -707,10 +703,10 @@ void handleHaRepublishDiscovery(AsyncWebServerRequest *request)
         request->send(503, "text/plain", "HA broker not connected - check settings");
         return;
     }
-    haPublishDiscovery();
-    haPublishAvailability(true);
-    haVariables.stateDirty = true; // triggers haPublishState() from the HA task
-    LogSerial.println(F("[HA] Discovery republished via web request"));
+    // Signal the haTask to republish — do NOT call haMqtt.publish() here.
+    // PubSubClient is not thread-safe; calling it from this async handler
+    // while haTask runs haMqtt.loop() concurrently corrupts its state.
+    haVariables.discoveryRepublishPending = true;
     request->send(200, "text/plain", "Discovery republished - check Home Assistant");
 }
 

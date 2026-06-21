@@ -392,6 +392,7 @@ bool haConnect()
     // before it sees the "online" availability message.
     haPublishDiscovery();
     haPublishAvailability(true);
+    haVariables.lastAvailabilityPublishMs = millis();
     haPublishState();
     haVariables.discoverySent = true;
     return true;
@@ -461,7 +462,34 @@ void haLoop()
         return;
     }
 
-    haMqtt.loop();
+    // If loop() returns false the TCP connection was dropped during servicing.
+    // Mark disconnected immediately so the reconnect path fires on the next tick.
+    if (!haMqtt.loop()) {
+        LogSerial.println(F("[HA] loop() returned false — scheduling reconnect"));
+        haVariables.connected = false;
+        return;
+    }
+
+    // Periodic availability heartbeat: re-publish "online" every 30 s.
+    // Guards against the LWT firing on a brief TCP hiccup and not recovering
+    // (e.g. modem sleep jitter, HA broker restart with cleared retained messages).
+    if (millis() - haVariables.lastAvailabilityPublishMs >= 30000) {
+        haPublishAvailability(true);
+        haVariables.lastAvailabilityPublishMs = millis();
+    }
+
+    // Service discovery republish requested by the web handler.
+    // The web handler must NOT call haMqtt.publish() directly — PubSubClient
+    // is not thread-safe and concurrent access from the async web context
+    // corrupts its state and triggers spurious disconnects.
+    if (haVariables.discoveryRepublishPending) {
+        haVariables.discoveryRepublishPending = false;
+        haPublishDiscovery();
+        haPublishAvailability(true);
+        haVariables.lastAvailabilityPublishMs = millis();
+        haVariables.stateDirty = true;
+        LogSerial.println(F("[HA] Discovery republished via web request"));
+    }
 
     if (haVariables.stateDirty)
         haPublishState();

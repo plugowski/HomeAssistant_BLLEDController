@@ -197,6 +197,8 @@ extern "C"
         bool discoverySent = false;     // discovery configs published since last connect
         bool stateDirty = true;         // a state change needs to be published to HA
         unsigned long lastReconnectMs = 0;
+        unsigned long lastAvailabilityPublishMs = 0; // for periodic availability heartbeat
+        volatile bool discoveryRepublishPending = false; // set by web handler, serviced by haTask
     } HAVariables;
 
     HAVariables haVariables;
